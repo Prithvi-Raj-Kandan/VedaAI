@@ -10,6 +10,12 @@ export interface IGeneratedPaperVersion {
 export interface IAssignment extends Document {
   title: string;
   documentURl?: string;
+  fileContext?: string;
+  uploadedFile?: {
+    originalName: string;
+    mimeType: string;
+    size: number;
+  };
   dueDate: Date;
   totalMarks: number;
   passingMarks: number;
@@ -30,6 +36,12 @@ export interface IAssignment extends Document {
 const assignmentSchema = new Schema<IAssignment>({
   title: { type: String, required: true },
   documentURl: { type: String, required: false },
+  fileContext: { type: String, required: false },
+  uploadedFile: {
+    originalName: { type: String, required: false },
+    mimeType: { type: String, required: false },
+    size: { type: Number, required: false }
+  },
   dueDate: { type: Date, required: true },
   totalMarks: { type: Number, required: true },
   passingMarks: { type: Number, required: true },

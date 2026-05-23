@@ -7,8 +7,19 @@ import { Queue } from 'bullmq';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { Redis } from 'ioredis';
+import multer from 'multer';
+import { PDFParse } from 'pdf-parse';
 
 dotenv.config();
+
+const apiLog = (event: string, data?: Record<string, unknown>) => {
+  const timestamp = new Date().toISOString();
+  if (data) {
+    console.log(`[api][${timestamp}] ${event}`, data);
+  } else {
+    console.log(`[api][${timestamp}] ${event}`);
+  }
+};
 
 const app = express();
 const redisHost = process.env.REDIS_HOST || '127.0.0.1';
@@ -16,6 +27,10 @@ const redisPort = Number(process.env.REDIS_PORT || 6379);
 const mongodbUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/vedaai';
 
 const httpServer = createServer(app);
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
 const io = new Server(httpServer, {
   cors: {
     origin: "http://localhost:3000",
@@ -31,10 +46,10 @@ const AIGenerationQueue = new Queue('AIGenerationQueue', {
 
 mongoose.connect(mongodbUri)
     .then(() => {
-        console.log("mongodb connected");
+    apiLog('MongoDB connected', { mongodbUri });
     })
     .catch((err) => {
-        console.log("mongodb not connected", err);
+    apiLog('MongoDB connection failed', { error: err instanceof Error ? err.message : String(err) });
     });
 
 app.use(cors({
@@ -44,16 +59,41 @@ app.use(cors({
 
 app.use(express.json());
 
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  const requestId = Math.random().toString(36).slice(2, 10);
+  (req as any).requestId = requestId;
+
+  apiLog('Request started', {
+    requestId,
+    method: req.method,
+    path: req.path,
+    contentType: req.headers['content-type'] || 'unknown'
+  });
+
+  res.on('finish', () => {
+    apiLog('Request finished', {
+      requestId,
+      method: req.method,
+      path: req.path,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - startedAt
+    });
+  });
+
+  next();
+});
+
 io.on("connection", (socket) => {
-  console.log(`User connected: ${socket.id}`);
+  apiLog('Socket connected', { socketId: socket.id });
   
   socket.on("joinAssignment", (assignmentId) => {
     socket.join(assignmentId);
-    console.log(`Socket ${socket.id} joined room ${assignmentId}`);
+    apiLog('Socket joined assignment room', { socketId: socket.id, assignmentId });
   });
 
   socket.on("disconnect", () => {
-    console.log(`User disconnected: ${socket.id}`);
+    apiLog('Socket disconnected', { socketId: socket.id });
   });
 });
 
@@ -64,9 +104,17 @@ redisSub.on('message', (channel: string, message: string) => {
   if (channel === 'assignment-updates') {
     try {
       const data = JSON.parse(message);
+      apiLog('Redis update received', {
+        channel,
+        assignmentId: data.assignmentId,
+        status: data.status
+      });
       io.to(data.assignmentId).emit('assignment-updated', data);
     } catch (e) {
-      console.error("Failed to parse redis message", e);
+      apiLog('Failed to parse redis message', {
+        channel,
+        error: e instanceof Error ? e.message : String(e)
+      });
     }
   }
 });
@@ -78,9 +126,25 @@ app.get("/health", (req, res) => {
     res.status(200).json({ message: " ok" });
 });
 
-app.post("/api/assignment", async (req, res) => {
+app.post("/api/assignment", upload.single('materialFile'), async (req, res) => {
     try {
-        const { title, documentUrl, dueDate, totalMarks, passingMarks, questions, additionalInfo } = req.body;
+    const requestId = (req as any).requestId;
+        const title = req.body.title;
+        const documentUrl = req.body.documentUrl;
+        const dueDate = req.body.dueDate;
+        const totalMarks = Number(req.body.totalMarks);
+        const passingMarks = Number(req.body.passingMarks);
+        const additionalInfo = req.body.additionalInfo;
+
+        let questions = req.body.questions;
+        if (typeof questions === 'string') {
+          try {
+            questions = JSON.parse(questions);
+          } catch {
+            return res.status(400).json({ message: 'Invalid questions payload. Expected JSON array.' });
+          }
+        }
+
         const normalizedQuestions = (questions || []).map((q: any) => {
           const totalQuestions = Number(q.totalQuestions || 0);
           const marksPerQuestion = Number(q.marksPerQuestion ?? q.totalMarks ?? 0);
@@ -94,9 +158,47 @@ app.post("/api/assignment", async (req, res) => {
           };
         });
 
+        let extractedText = '';
+        if (req.file) {
+          apiLog('Material file received', {
+            requestId,
+            fileName: req.file.originalname,
+            mimeType: req.file.mimetype,
+            size: req.file.size
+          });
+
+          if (req.file.mimetype === 'application/pdf') {
+            const parser = new PDFParse({ data: req.file.buffer });
+            const parsed = await parser.getText();
+            extractedText = parsed.text?.trim() || '';
+            await parser.destroy();
+          } else if (req.file.mimetype === 'text/plain') {
+            extractedText = req.file.buffer.toString('utf-8').trim();
+          } else {
+            apiLog('Unsupported upload type', {
+              requestId,
+              mimeType: req.file.mimetype
+            });
+            return res.status(400).json({ message: 'Unsupported file type. Please upload PDF or TXT files.' });
+          }
+
+          apiLog('Material file parsed', {
+            requestId,
+            extractedTextLength: extractedText.length
+          });
+        } else {
+          apiLog('No material file uploaded for assignment', { requestId });
+        }
+
         const assignment = await Assignment.create({
             title,
             documentURl: documentUrl,
+            fileContext: extractedText || undefined,
+            uploadedFile: req.file ? {
+              originalName: req.file.originalname,
+              mimeType: req.file.mimetype,
+              size: req.file.size,
+            } : undefined,
             dueDate,
             totalMarks,
             passingMarks,
@@ -105,15 +207,32 @@ app.post("/api/assignment", async (req, res) => {
             status: 'pending',
             generatedPaperVersions: []
         });
+
+        apiLog('Assignment created', {
+          requestId,
+          assignmentId: String(assignment._id),
+          hasFileContext: Boolean(assignment.fileContext),
+          fileContextLength: assignment.fileContext?.length || 0,
+          status: assignment.status
+        });
         
         await AIGenerationQueue.add("generate-paper", {
             assignmentId: assignment._id,
+        });
+
+        apiLog('Job queued', {
+          requestId,
+          assignmentId: String(assignment._id),
+          queueName: 'AIGenerationQueue',
+          jobName: 'generate-paper'
         });
         
         res.status(201).json({ message: "assignment created successfully", assignment });
     }
     catch (error) {
-        console.log("error ", error);
+        apiLog('Create assignment failed', {
+          error: error instanceof Error ? error.message : String(error)
+        });
         res.status(500).json({ message: "internal server error" });
     }
 });
@@ -142,11 +261,12 @@ app.get("/api/assignments", async (req, res) => {
 
 const PORT = process.env.PORT || 8000;
 httpServer.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
+  apiLog('Server listening', { port: PORT, redisHost, redisPort });
 });
 
 app.post('/api/assignment/:id/regenerate', async (req, res) => {
   try {
+    const requestId = (req as any).requestId;
     const assignment = await Assignment.findById(req.params.id);
     if (!assignment) {
       return res.status(404).json({ message: 'Assignment not found' });
@@ -160,9 +280,18 @@ app.post('/api/assignment/:id/regenerate', async (req, res) => {
       source: 'regenerate'
     });
 
+    apiLog('Regeneration queued', {
+      requestId,
+      assignmentId: String(assignment._id),
+      source: 'regenerate'
+    });
+
     res.status(202).json({ message: 'Regeneration queued', assignment });
   } catch (error) {
-    console.error('regenerate error', error);
+    apiLog('Regenerate failed', {
+      assignmentId: req.params.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
     res.status(500).json({ message: 'Internal server error' });
   }
 });
@@ -180,7 +309,10 @@ app.get('/api/assignment/:id/versions', async (req, res) => {
       versions
     });
   } catch (error) {
-    console.error('versions fetch error', error);
+    apiLog('Versions fetch failed', {
+      assignmentId: req.params.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
     res.status(500).json({ message: 'Internal server error' });
   }
 });
@@ -211,9 +343,19 @@ app.post('/api/assignment/:id/versions/:versionNumber/restore', async (req, res)
     };
     await redisPub.publish('assignment-updates', JSON.stringify(payload));
 
+    apiLog('Version restored', {
+      assignmentId: String(assignment._id),
+      restoredVersion: versionNumber,
+      status: assignment.status
+    });
+
     res.status(200).json({ message: 'Version restored', assignment });
   } catch (error) {
-    console.error('restore version error', error);
+    apiLog('Restore version failed', {
+      assignmentId: req.params.id,
+      versionNumber: req.params.versionNumber,
+      error: error instanceof Error ? error.message : String(error)
+    });
     res.status(500).json({ message: 'Internal server error' });
   }
 });

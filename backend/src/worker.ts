@@ -2,40 +2,97 @@ import { Worker } from 'bullmq';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import Assignment from './models/Assignment.js';
+import SYSTEM_PROMPT from './prompts/systemPrompt.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Redis } from 'ioredis';
 
 dotenv.config();
+
+const workerLog = (event: string, data?: Record<string, unknown>) => {
+    const timestamp = new Date().toISOString();
+    if (data) {
+        console.log(`[worker][${timestamp}] ${event}`, data);
+    } else {
+        console.log(`[worker][${timestamp}] ${event}`);
+    }
+};
+
+const normalizeGeneratedPaper = (paper: any) => {
+    if (!paper || typeof paper !== 'object') {
+        return { sections: [] };
+    }
+
+    const sections = Array.isArray(paper.sections) ? paper.sections : [];
+    return {
+        ...paper,
+        sections: sections.map((section: any) => {
+            const questions = Array.isArray(section?.questions) ? section.questions : [];
+            return {
+                ...section,
+                // Frontend currently reads `instruction`.
+                instruction: section?.instruction ?? section?.instructions ?? '',
+                questions: questions.map((q: any, index: number) => ({
+                    ...q,
+                    // Frontend currently reads `questionText`.
+                    questionText: q?.questionText ?? q?.text ?? '',
+                    difficulty: q?.difficulty ?? 'Medium',
+                    marks: Number(q?.marks ?? 0),
+                    id: q?.id ?? `q${index + 1}`,
+                }))
+            };
+        })
+    };
+};
 
 const redisHost = process.env.REDIS_HOST || '127.0.0.1';
 const redisPort = Number(process.env.REDIS_PORT || 6379);
 const mongodbUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/vedaai';
 
 mongoose.connect(mongodbUri)
-    .then(() => console.log("Worker connected to MongoDB"))
-    .catch((err) => console.log("Worker MongoDB connection error", err));
+    .then(() => workerLog('MongoDB connected', { mongodbUri }))
+    .catch((err) => workerLog('MongoDB connection error', { error: err instanceof Error ? err.message : String(err) }));
 
 const redisPub = new Redis({ host: redisHost, port: redisPort });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
+workerLog('Worker bootstrap complete', {
+    redisHost,
+    redisPort,
+    hasGeminiKey: Boolean(process.env.GEMINI_API_KEY)
+});
+
 const worker = new Worker('AIGenerationQueue', async (job) => {
     const { assignmentId, source = 'initial' } = job.data;
-    console.log(`Processing job for assignment ${assignmentId}`);
+    workerLog('Job received', {
+        jobId: job.id,
+        assignmentId,
+        source,
+        queueName: job.queueName,
+        attemptsMade: job.attemptsMade
+    });
     
     try {
         const assignment = await Assignment.findById(assignmentId);
         if (!assignment) {
             throw new Error('Assignment not found');
         }
+        workerLog('Assignment loaded', {
+            assignmentId,
+            status: assignment.status,
+            hasFileContext: Boolean(assignment.fileContext),
+            fileContextLength: assignment.fileContext?.length || 0,
+            questionGroups: assignment.questions?.length || 0
+        });
 
         // Notify that generation started
-        redisPub.publish('assignment-updates', JSON.stringify({
+        await redisPub.publish('assignment-updates', JSON.stringify({
             assignmentId,
             status: 'processing'
         }));
+        workerLog('Published status update', { assignmentId, status: 'processing' });
 
         if (!process.env.GEMINI_API_KEY) {
-            console.warn("No GEMINI_API_KEY found, mocking generation for testing...");
+            workerLog('No GEMINI_API_KEY found, using mock generation path', { assignmentId });
             // Simulate delay
             await new Promise(r => setTimeout(r, 2000));
             assignment.status = 'completed';
@@ -63,12 +120,18 @@ const worker = new Worker('AIGenerationQueue', async (job) => {
             ];
             assignment.activeVersion = nextVersion;
             await assignment.save();
+            workerLog('Mock generation saved', {
+                assignmentId,
+                versionNumber: nextVersion,
+                status: assignment.status
+            });
             
-            redisPub.publish('assignment-updates', JSON.stringify({
+            await redisPub.publish('assignment-updates', JSON.stringify({
                 assignmentId,
                 status: 'completed',
                 assignment
             }));
+            workerLog('Published status update', { assignmentId, status: 'completed' });
             return { success: true };
         }
 
@@ -87,7 +150,7 @@ const worker = new Worker('AIGenerationQueue', async (job) => {
             return sum + (q.totalQuestions * marksPerQuestion);
         }, 0);
 
-        const prompt = `
+                const userPrompt = `
 You are an AI Assessment Creator. Generate a question paper based on the following assignment details:
 Title: ${assignment.title}
 Target Total Marks (students should attempt): ${assignment.totalMarks}
@@ -101,25 +164,40 @@ If Total Marks Present in Paper is greater than Target Total Marks, design the p
 
 Please generate the output strictly as a JSON object with the following structure:
 {
-  "sections": [
-    {
-      "title": "Section Name",
-      "instruction": "Instruction for the section",
-      "questions": [
+    "sections": [
         {
-          "questionText": "The actual question",
-          "difficulty": "Easy" | "Moderate" | "Hard",
-          "marks": number
+            "title": "Section Name",
+            "instruction": "Instruction for the section",
+            "questions": [
+                {
+                    "questionText": "The actual question",
+                    "difficulty": "Easy" | "Moderate" | "Hard",
+                    "marks": number
+                }
+            ]
         }
-      ]
-    }
-  ]
+    ]
 }
 Return ONLY valid JSON, without any markdown formatting. Do not wrap in \`\`\`json.
 `;
 
+                // Include raw fileContext (PDF/TXT extraction) verbatim as requested.
+                // The system prompt (rules) remains separate and will be prepended.
+                const fileContextBlock = assignment.fileContext ? `FileContext:\n${assignment.fileContext}\n\n` : '';
+                const prompt = SYSTEM_PROMPT + "\n\n" + fileContextBlock + userPrompt;
+
+            workerLog('Invoking LLM generation', {
+                assignmentId,
+                promptLength: prompt.length,
+                fileContextLength: assignment.fileContext?.length || 0
+            });
+
         const result = await model.generateContent(prompt);
         let text = result.response.text();
+        workerLog('Gemini API response received', {
+            assignmentId,
+            rawResponseLength: text.length
+        });
         
         text = text.trim();
         if (text.startsWith('```json')) {
@@ -128,7 +206,14 @@ Return ONLY valid JSON, without any markdown formatting. Do not wrap in \`\`\`js
             text = text.substring(3, text.length - 3).trim();
         }
         
-        const generatedPaper = JSON.parse(text);
+        const generatedPaper = normalizeGeneratedPaper(JSON.parse(text));
+        workerLog('LLM response parsed', {
+            assignmentId,
+            responseLength: text.length,
+            hasSections: Array.isArray(generatedPaper?.sections),
+            sectionCount: Array.isArray(generatedPaper?.sections) ? generatedPaper.sections.length : 0,
+            firstQuestionPreview: generatedPaper?.sections?.[0]?.questions?.[0]?.questionText?.slice?.(0, 80) || ''
+        });
 
         assignment.status = 'completed';
         assignment.generatedPaper = generatedPaper;
@@ -145,23 +230,34 @@ Return ONLY valid JSON, without any markdown formatting. Do not wrap in \`\`\`js
         ];
         assignment.activeVersion = nextVersion;
         await assignment.save();
+        workerLog('Generated paper saved', {
+            assignmentId,
+            versionNumber: nextVersion,
+            status: assignment.status
+        });
 
-        redisPub.publish('assignment-updates', JSON.stringify({
+        await redisPub.publish('assignment-updates', JSON.stringify({
             assignmentId,
             status: 'completed',
             assignment
         }));
+        workerLog('Published status update', { assignmentId, status: 'completed' });
         
-        console.log(`Successfully generated paper for ${assignmentId}`);
+        workerLog('Job completed successfully', { jobId: job.id, assignmentId });
         return { success: true };
     } catch (error) {
-        console.error(`Error processing job ${job.id}:`, error);
+        workerLog('Job failed', {
+            jobId: job.id,
+            assignmentId,
+            error: error instanceof Error ? error.message : String(error)
+        });
         
         await Assignment.findByIdAndUpdate(assignmentId, { status: 'failed' });
-        redisPub.publish('assignment-updates', JSON.stringify({
+        await redisPub.publish('assignment-updates', JSON.stringify({
             assignmentId,
             status: 'failed'
         }));
+        workerLog('Published status update', { assignmentId, status: 'failed' });
         
         throw error;
     }
@@ -170,7 +266,18 @@ Return ONLY valid JSON, without any markdown formatting. Do not wrap in \`\`\`js
 });
 
 worker.on('failed', (job, err) => {
-    console.error(`Job ${job?.id} failed with error: ${err.message}`);
+    workerLog('BullMQ failed event', {
+        jobId: job?.id,
+        error: err.message,
+        stack: err.stack
+    });
 });
 
-console.log("Worker is running...");
+worker.on('completed', (job) => {
+    workerLog('BullMQ completed event', {
+        jobId: job.id,
+        queueName: job.queueName
+    });
+});
+
+workerLog('Worker is running');

@@ -37,6 +37,7 @@ export default function CreateAssignmentPage() {
   const router = useRouter();
   const { setActiveAssignment } = useAssignmentStore();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const { register, control, watch, handleSubmit, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -70,10 +71,25 @@ export default function CreateAssignmentPage() {
   const onSubmit = async (data: FormValues) => {
     setIsSubmitting(true);
     try {
+      const payload = new FormData();
+      payload.append('title', data.title);
+      payload.append('dueDate', data.dueDate);
+      payload.append('totalMarks', String(data.totalMarks));
+      payload.append('passingMarks', String(data.passingMarks));
+      payload.append('additionalInfo', data.additionalInfo || '');
+      payload.append('questions', JSON.stringify(data.questions));
+
+      if (data.documentUrl) {
+        payload.append('documentUrl', data.documentUrl);
+      }
+
+      if (selectedFile) {
+        payload.append('materialFile', selectedFile);
+      }
+
       const response = await fetch('http://localhost:8000/api/assignment', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        body: payload
       });
       
       if (!response.ok) throw new Error("Failed to create assignment");
@@ -121,8 +137,16 @@ export default function CreateAssignmentPage() {
             <label className="text-sm font-medium text-gray-700">File Upload (Optional)</label>
             <input 
               type="file"
+              accept=".pdf,.txt,application/pdf,text/plain"
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                setSelectedFile(file);
+              }}
               className="w-full p-3 border border-gray-200 rounded-lg focus:outline-none text-gray-500"
             />
+            {selectedFile && (
+              <p className="text-xs text-gray-500">Selected: {selectedFile.name}</p>
+            )}
           </div>
 
           <div className="space-y-2">
