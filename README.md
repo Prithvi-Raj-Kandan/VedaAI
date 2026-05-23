@@ -23,8 +23,7 @@ VedaAI is a full-stack web application designed to automatically generate assign
 
 Make sure you have the following installed on your local machine:
 - [Node.js](https://nodejs.org/) (v18 or higher)
-- [MongoDB](https://www.mongodb.com/) (running locally on default port `27017`)
-- [Redis](https://redis.io/) (running locally on default port `6379`)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) for MongoDB and Redis, or local installs of both services
 
 ## Getting Started
 
@@ -39,8 +38,24 @@ npm install
 Create a `.env` file in the `backend` directory with the following variables (adjust as necessary):
 ```env
 PORT=8000
+MONGODB_URI=mongodb://127.0.0.1:27017/vedaai
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
 GEMINI_API_KEY=your_google_generative_ai_api_key
 ```
+
+You can copy the template from `backend/.env.example`.
+
+### 1a. Start MongoDB and Redis
+
+If you want a one-command local setup, use Docker Compose from the repo root:
+```bash
+docker compose up -d
+```
+
+This starts:
+- MongoDB on `localhost:27017`
+- Redis on `localhost:6379`
 
 Start the backend server and the worker process:
 ```bash
@@ -63,6 +78,8 @@ Start the frontend development server:
 ```bash
 npm run dev
 ```
+
+If you want to configure the frontend API base URL later, copy `frontend/.env.local.example` to `frontend/.env.local`.
 
 ### 3. Open the App
 

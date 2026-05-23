@@ -7,6 +7,16 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useAssignmentStore } from '@/store/useAssignmentStore';
 
+const QUESTION_TYPE_OPTIONS = [
+  'Multiple Choice',
+  'Short Answer',
+  'Long Answer',
+  'Numerical Problem',
+  'Diagram/Graph-Based',
+  'Case Study',
+  'True/False',
+];
+
 const formSchema = z.object({
   title: z.string().min(3, "Title is required"),
   documentUrl: z.string().optional(),
@@ -28,7 +38,7 @@ export default function CreateAssignmentPage() {
   const { setActiveAssignment } = useAssignmentStore();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { register, control, handleSubmit, formState: { errors } } = useForm<FormValues>({
+  const { register, control, watch, handleSubmit, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       questions: [{ questionType: 'Multiple Choice', totalQuestions: 1, totalMarks: 1 }]
@@ -39,6 +49,23 @@ export default function CreateAssignmentPage() {
     control,
     name: "questions"
   });
+
+  const watchedQuestions = watch('questions') || [];
+  const targetTotalMarks = watch('totalMarks') || 0;
+
+  const totalQuestionsInPaper = watchedQuestions.reduce((sum, q) => {
+    const count = Number(q?.totalQuestions) || 0;
+    return sum + count;
+  }, 0);
+
+  const totalMarksInPaper = watchedQuestions.reduce((sum, q) => {
+    const count = Number(q?.totalQuestions) || 0;
+    const marksPerQuestion = Number(q?.totalMarks) || 0;
+    return sum + (count * marksPerQuestion);
+  }, 0);
+
+  const extraMarks = Math.max(totalMarksInPaper - targetTotalMarks, 0);
+  const supportsChoiceMode = targetTotalMarks > 0 && totalMarksInPaper > targetTotalMarks;
 
   const onSubmit = async (data: FormValues) => {
     setIsSubmitting(true);
@@ -99,7 +126,7 @@ export default function CreateAssignmentPage() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Total Marks</label>
+            <label className="text-sm font-medium text-gray-700">Total Marks (Students Attempt)</label>
             <input 
               type="number"
               {...register('totalMarks', { valueAsNumber: true })} 
@@ -139,9 +166,9 @@ export default function CreateAssignmentPage() {
                   {...register(`questions.${index}.questionType`)}
                   className="w-full p-2 border border-gray-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-orange-500"
                 >
-                  <option value="Multiple Choice">Multiple Choice</option>
-                  <option value="Short Answer">Short Answer</option>
-                  <option value="Long Answer">Long Answer</option>
+                  {QUESTION_TYPE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
                 </select>
               </div>
               <div className="w-32 space-y-1">
@@ -153,7 +180,7 @@ export default function CreateAssignmentPage() {
                 />
               </div>
               <div className="w-32 space-y-1">
-                <label className="text-xs text-gray-500">Total Marks</label>
+                <label className="text-xs text-gray-500">Marks / Q</label>
                 <input 
                   type="number"
                   {...register(`questions.${index}.totalMarks`, { valueAsNumber: true })}
@@ -172,6 +199,26 @@ export default function CreateAssignmentPage() {
             </div>
           ))}
           {errors.questions && <p className="text-red-500 text-xs">{errors.questions.message}</p>}
+
+          <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-700">
+            <div className="flex items-center justify-between">
+              <span>Total Questions in Paper</span>
+              <span className="font-semibold text-gray-900">{totalQuestionsInPaper}</span>
+            </div>
+            <div className="mt-2 flex items-center justify-between">
+              <span>Total Marks in Paper</span>
+              <span className="font-semibold text-gray-900">{totalMarksInPaper}</span>
+            </div>
+            <div className="mt-2 flex items-center justify-between">
+              <span>Target Marks (Students Attempt)</span>
+              <span className="font-semibold text-gray-900">{targetTotalMarks || 0}</span>
+            </div>
+            {supportsChoiceMode && (
+              <p className="mt-3 rounded-md bg-orange-50 px-3 py-2 text-xs text-orange-800">
+                Choice mode enabled: paper includes {extraMarks} extra marks beyond the target total. This supports "attempt from choice" patterns.
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="space-y-2">

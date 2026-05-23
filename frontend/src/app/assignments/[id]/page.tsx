@@ -18,18 +18,41 @@ export default function AssignmentOutputPage() {
   } = useAssignmentStore();
   
   const [assignment, setAssignment] = useState<any>(null);
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isRestoringVersion, setIsRestoringVersion] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
+  const hydrateAssignment = (data: any) => {
+    setAssignment(data);
+
+    if (data.status === 'completed') {
+      setGeneratedData(data.generatedPaper, 'completed');
+    }
+
+    if (data.activeVersion) {
+      setSelectedVersion(data.activeVersion);
+      return;
+    }
+
+    const versions = data.generatedPaperVersions || [];
+    if (versions.length > 0) {
+      const latest = versions.reduce((acc: any, curr: any) => {
+        return curr.versionNumber > acc.versionNumber ? curr : acc;
+      }, versions[0]);
+      setSelectedVersion(latest.versionNumber);
+    }
+  };
+
+  const fetchAssignment = async () => {
+    const response = await fetch(`http://localhost:8000/api/assignment/${id}`);
+    if (!response.ok) throw new Error('Failed to fetch assignment');
+    const data = await response.json();
+    hydrateAssignment(data);
+  };
+
   useEffect(() => {
-    // Fetch initial state
-    fetch(`http://localhost:8000/api/assignment/${id}`)
-      .then(res => res.json())
-      .then(data => {
-        setAssignment(data);
-        if (data.status === 'completed') {
-          setGeneratedData(data.generatedPaper, 'completed');
-        }
-      })
+    fetchAssignment()
       .catch(err => console.error(err));
 
     connectSocket();
@@ -40,18 +63,79 @@ export default function AssignmentOutputPage() {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (assignmentStatus === 'completed') {
+      fetchAssignment().catch((err) => console.error(err));
+      setIsRegenerating(false);
+      setIsRestoringVersion(false);
+    }
+
+    if (assignmentStatus === 'failed') {
+      setIsRegenerating(false);
+      setIsRestoringVersion(false);
+    }
+  }, [assignmentStatus]);
+
   const handleDownloadPDF = async () => {
     if (!printRef.current) return;
     const html2pdf = (await import('html2pdf.js')).default;
     const opt = {
       margin:       0.5,
       filename:     `${assignment?.title || 'Assignment'}.pdf`,
-      image:        { type: 'jpeg', quality: 0.98 },
+      image:        { type: 'jpeg' as const, quality: 0.98 },
       html2canvas:  { scale: 2 },
-      jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+      jsPDF:        { unit: 'in' as const, format: 'letter' as const, orientation: 'portrait' as const }
     };
     
     html2pdf().set(opt).from(printRef.current).save();
+  };
+
+  const handleRegenerate = async () => {
+    try {
+      setIsRegenerating(true);
+      const response = await fetch(`http://localhost:8000/api/assignment/${id}/regenerate`, {
+        method: 'POST'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to regenerate assignment');
+      }
+
+      setGeneratedData(null, 'pending');
+    } catch (error) {
+      console.error(error);
+      setIsRegenerating(false);
+    }
+  };
+
+  const handleVersionSelect = (versionNumber: number) => {
+    setSelectedVersion(versionNumber);
+    const version = assignment?.generatedPaperVersions?.find((v: any) => v.versionNumber === versionNumber);
+    if (version) {
+      setGeneratedData(version.generatedPaper, 'completed');
+    }
+  };
+
+  const handleRestoreVersion = async () => {
+    if (!selectedVersion) return;
+
+    try {
+      setIsRestoringVersion(true);
+      const response = await fetch(`http://localhost:8000/api/assignment/${id}/versions/${selectedVersion}/restore`, {
+        method: 'POST'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to restore version');
+      }
+
+      const data = await response.json();
+      hydrateAssignment(data.assignment);
+      setIsRestoringVersion(false);
+    } catch (error) {
+      console.error(error);
+      setIsRestoringVersion(false);
+    }
   };
 
   if (assignmentStatus === 'pending' || assignmentStatus === 'processing' || (!generatedData && assignmentStatus !== 'failed')) {
@@ -91,19 +175,39 @@ export default function AssignmentOutputPage() {
           <FileText className="w-5 h-5 text-gray-500" />
           <h2 className="font-semibold text-gray-900 truncate max-w-xs">{assignment?.title}</h2>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 items-center">
+          {(assignment?.generatedPaperVersions?.length || 0) > 0 && (
+            <div className="flex items-center gap-2">
+              <select
+                className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white"
+                value={selectedVersion ?? ''}
+                onChange={(e) => handleVersionSelect(Number(e.target.value))}
+              >
+                {(assignment.generatedPaperVersions || [])
+                  .slice()
+                  .sort((a: any, b: any) => b.versionNumber - a.versionNumber)
+                  .map((version: any) => (
+                    <option key={version.versionNumber} value={version.versionNumber}>
+                      Version {version.versionNumber} ({version.source})
+                    </option>
+                  ))}
+              </select>
+              <button
+                onClick={handleRestoreVersion}
+                disabled={!selectedVersion || isRestoringVersion}
+                className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                {isRestoringVersion ? 'Restoring...' : 'Restore'}
+              </button>
+            </div>
+          )}
           <button 
-            onClick={() => {
-              // Mock regenerate for UI purposes
-              setGeneratedData(null, 'pending');
-              setTimeout(() => {
-                setGeneratedData(generatedData, 'completed');
-              }, 2000);
-            }}
+            onClick={handleRegenerate}
+            disabled={isRegenerating}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
-            Regenerate
+            {isRegenerating ? 'Regenerating...' : 'Regenerate'}
           </button>
           <button 
             onClick={handleDownloadPDF}

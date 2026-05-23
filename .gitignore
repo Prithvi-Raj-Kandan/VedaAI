@@ -3,6 +3,8 @@ node_modules/
 npm-debug.log
 yarn-error.log
 yarn-debug.log
+pnpm-debug.log
+*.log
 
 # Next.js / React
 .next/
@@ -12,6 +14,7 @@ build/
 # Node.js backend
 dist/
 coverage/
+uploads/
 
 # Environment Variables
 .env
@@ -19,6 +22,19 @@ coverage/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.*
+!.env.example
+!.env.*.example
+
+# TypeScript
+*.tsbuildinfo
+
+# Runtime
+*.pid
+*.pid.lock
+
+# Docker
+docker-compose.override.yml
 
 # OS
 .DS_Store

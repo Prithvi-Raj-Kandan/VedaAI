@@ -1,5 +1,12 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
+export interface IGeneratedPaperVersion {
+  versionNumber: number;
+  generatedAt: Date;
+  source: 'initial' | 'regenerate' | 'restore';
+  generatedPaper: any;
+}
+
 export interface IAssignment extends Document {
   title: string;
   documentURl?: string;
@@ -9,11 +16,15 @@ export interface IAssignment extends Document {
   questions: {
     questionType: string;
     totalQuestions: number;
-    totalMarks: number;
+    marksPerQuestion: number;
+    sectionTotalMarks: number;
+    totalMarks?: number;
   }[];
   additionalInfo?: string;
   status: 'pending' | 'completed' | 'failed';
   generatedPaper?: any;
+  generatedPaperVersions: IGeneratedPaperVersion[];
+  activeVersion?: number;
 }
 
 const assignmentSchema = new Schema<IAssignment>({
@@ -26,12 +37,24 @@ const assignmentSchema = new Schema<IAssignment>({
     {
       questionType: { type: String, required: true },
       totalQuestions: { type: Number, required: true },
-      totalMarks: { type: Number, required: true }
+      marksPerQuestion: { type: Number, required: true },
+      sectionTotalMarks: { type: Number, required: true },
+      // Backward-compatible field for older documents and payloads.
+      totalMarks: { type: Number, required: false }
     }
   ],
   additionalInfo: { type: String, required: false },
   status: { type: String, enum: ['pending', 'completed', 'failed'], default: 'pending' },
-  generatedPaper: { type: Schema.Types.Mixed, required: false }
+  generatedPaper: { type: Schema.Types.Mixed, required: false },
+  generatedPaperVersions: [
+    {
+      versionNumber: { type: Number, required: true },
+      generatedAt: { type: Date, required: true, default: Date.now },
+      source: { type: String, enum: ['initial', 'regenerate', 'restore'], required: true },
+      generatedPaper: { type: Schema.Types.Mixed, required: true }
+    }
+  ],
+  activeVersion: { type: Number, required: false }
 }, { timestamps: true });
 
 const Assignment = mongoose.model<IAssignment>("Assignment", assignmentSchema);

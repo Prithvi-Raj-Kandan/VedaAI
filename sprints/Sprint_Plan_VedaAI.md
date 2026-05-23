@@ -1,33 +1,78 @@
-# Project: VedaAI Final Polish — Personal Sprint Plan
+# Project: VedaAI Build Plan — Personal Sprint Plan
 
 **Owner: Samarth**
 **Timeline: 1 Week**
 
 > **Project Name: VedaAI** (AI Assessment Creator)
-> 
-> This sprint focuses on completing the final critical features and polish for the VedaAI project. By the end of this sprint, the application will process real file uploads (PDF/Text), robustly handle AI failures, implement intelligent caching, and fully support regenerating assignments.
+>
+> This sprint focuses on turning the current prototype into a complete assignment-generation system built around three primary tracks: assignment creation, AI question generation, and the backend orchestration layer.
 
 ---
 
 ## The Goal
 
-Transform the existing VedaAI implementation from a working prototype into a robust, production-ready full-stack application. You will handle actual file streams, parse PDF content, optimize AI requests using Redis caching, and ensure the UI gracefully handles any Gemini AI failures.
+Transform the existing VedaAI implementation from a working prototype into a robust, production-ready full-stack application. The build should support file-aware assignment creation, structured AI generation, and a reliable backend pipeline with queues, caching, and real-time updates.
 
 **Success Standard:**
-- Upload a real PDF syllabus in the Next.js frontend.
-- The backend successfully extracts the text and uses it to guide the Gemini AI.
-- The `Regenerate` button triggers a fresh BullMQ job and updates the UI via WebSockets without page reload.
-- Identical assignment requests immediately return a cached response from Redis instead of hitting the Gemini API.
+- Create an assignment from the frontend with validation, optional file upload, and websocket-driven state.
+- Generate a structured paper from the input, including sections, questions, difficulty, and marks.
+- Persist assignments and generated results in MongoDB.
+- Queue generation jobs through BullMQ and notify the frontend in real time.
+- Cache repeated AI requests in Redis so identical inputs return quickly.
 
 ---
 
+## Three Core Tracks
+
+### 1. Assignment Creation (Frontend)
+
+Build the teacher-facing form with:
+- File upload for PDF/text input, optional.
+- Due date.
+- Question types.
+- Number of questions and marks.
+- Additional instructions.
+
+Requirements:
+- Proper validation for empty and negative values.
+- Zustand or Redux state management.
+- WebSocket state management for assignment progress.
+
+### 2. AI Question Generation
+
+Convert the assignment input into a structured prompt and generate:
+- Sections such as A, B, and so on.
+- Questions inside each section.
+- Difficulty labels: easy, medium, hard.
+- Marks per question.
+
+Requirements:
+- Do not render raw LLM output directly.
+- Parse and validate the model output before storing it.
+- Use the uploaded file context when available.
+
+### 3. Backend System
+
+Build the infrastructure layer with:
+- MongoDB for assignments and generated results.
+- Redis for caching and queue state.
+- BullMQ for background generation jobs.
+- Socket.io for live status updates.
+
+Flow:
+1. API request comes in.
+2. Job is added to BullMQ.
+3. Worker processes the assignment.
+4. Result is stored in MongoDB.
+5. Frontend is notified over WebSocket.
+
 ## Where You Are Starting
 
-- The Next.js frontend is built, including the Sidebar, Layout, and an Assignment Creation form.
-- The Node.js + Express backend is functional with MongoDB.
-- BullMQ and Redis are wired up for background jobs, and Socket.io is successfully pushing real-time updates.
-- The PDF export (`html2pdf.js`) is working on the Output page.
-- **Missing:** Real file uploads, functional "Regenerate" button, Redis caching, and backend AI validation.
+- The Next.js frontend already has a landing page, assignments page, create page, and output page.
+- Zustand is already wired for socket and assignment state.
+- The Node.js + Express backend already has MongoDB, BullMQ, Redis, and Socket.io wiring.
+- The PDF export on the output page is working.
+- **Still missing:** real file parsing, prompt caching, regenerate API flow, strong AI validation, and polished error handling.
 
 ---
 
@@ -35,49 +80,50 @@ Transform the existing VedaAI implementation from a working prototype into a rob
 
 | Ticket | What | Priority | Days |
 |--------|------|----------|------|
-| VEDA-101 | File Upload & Parsing — `multer` integration and `pdf-parse` extraction | P0 | 1-2 |
-| VEDA-102 | Gemini Context Injection — Update the BullMQ worker to use file context | P0 | 1 |
-| VEDA-103 | Regenerate Flow — New API endpoint and frontend hookup | P0 | 1 |
-| VEDA-104 | Redis Prompt Caching — Hash inputs to save LLM costs and latency | P1 | 1 |
+| VEDA-101 | Assignment Creation Form — file upload, validation, Zustand, socket state | P0 | 1-2 |
+| VEDA-102 | AI Prompt Generation — structured prompt + section/question output | P0 | 1 |
+| VEDA-103 | Backend Job Flow — queue, worker, store result, notify frontend | P0 | 1 |
+| VEDA-104 | Redis Prompt Caching — hash inputs to save LLM costs and latency | P1 | 1 |
 | VEDA-105 | AI Fallback & Validation — Zod validation for LLM JSON output | P1 | 1 |
-| VEDA-106 | UI Error Boundaries — Elegant toast notifications for failures | P2 | 1 |
+| VEDA-106 | UI Error Boundaries — toast notifications for failures | P2 | 1 |
 
 ---
 
-### VEDA-101: File Upload & Parsing
+### VEDA-101: Assignment Creation Form
 **Priority: P0 | Days 1-2**
 
-The UI has a file upload field, but it doesn't send data. Implement the pipeline to extract text from user-uploaded PDFs.
+The frontend form must capture teacher input cleanly and safely.
 
 **Done when:**
-- The frontend converts the file to a `FormData` payload.
-- The backend uses `multer` to accept the file upload on `POST /api/assignment`.
-- `pdf-parse` (or a similar library) extracts the text content from the file.
-- The extracted text is saved to the MongoDB `Assignment` document.
+- The frontend form includes all requested fields.
+- Validation blocks empty values and negative counts.
+- Zustand handles the assignment and websocket state.
+- File upload is ready to send in `FormData`.
 
 ---
 
-### VEDA-102: Gemini Context Injection
+### VEDA-102: AI Prompt Generation
 **Priority: P0 | Day 3**
 
-Make the AI actually use the uploaded document to generate relevant questions.
+Convert assignment input into a structured model prompt.
 
 **Done when:**
-- The BullMQ worker reads the extracted text from the database.
-- The prompt is dynamically updated to include: "Based exclusively on the following text context: [TEXT]".
-- Generated questions accurately reflect the content of the uploaded PDF.
+- The worker builds a sectioned prompt from title, instructions, question config, and file context.
+- The prompt instructs the LLM to return sections, questions, difficulty, and marks.
+- The generated structure matches the output page format.
 
 ---
 
-### VEDA-103: Regenerate Flow
+### VEDA-103: Backend Job Flow
 **Priority: P0 | Day 4**
 
-Replace the mock `setTimeout` on the "Regenerate" button with real logic.
+Make the backend orchestrate the generation pipeline end to end.
 
 **Done when:**
-- `POST /api/assignment/:id/regenerate` endpoint is created.
-- The endpoint clears the existing `generatedPaper`, updates status to `pending`, and queues a new BullMQ job.
-- The frontend button calls this API and the UI accurately reflects the loading state via WebSockets until the new paper arrives.
+- `POST /api/assignment` creates the assignment document.
+- A BullMQ job is queued for generation.
+- The worker saves the generated result in MongoDB.
+- Socket.io notifies the frontend when the status changes.
 
 ---
 
@@ -118,18 +164,33 @@ Improve the UX by replacing native browser alerts with polished notifications.
 
 ## Environment & Setup
 
-**Tech Stack:** Next.js, Node.js, Express, MongoDB, Redis, BullMQ, Google Generative AI, `multer`, `pdf-parse`.
+**Tech Stack:** Next.js, Node.js, Express, MongoDB, Redis, BullMQ, Google Generative AI, Zustand, Socket.io, `multer`, `pdf-parse`, `zod`, `html2pdf.js`.
 
 **Local Setup:**
-Ensure your Redis and MongoDB containers/services are running locally on their default ports.
+Use Docker to start MongoDB and Redis, then run the backend and frontend separately.
+
 ```bash
-# Terminal 1
-npm run dev # in backend
-# Terminal 2
-npm run worker # in backend
-# Terminal 3
-npm run dev # in frontend
+# Start infrastructure
+docker compose up -d
+
+# Backend
+cd backend
+npm install
+npm run dev
+
+# Worker
+cd backend
+npm run worker
+
+# Frontend
+cd frontend
+npm install
+npm run dev
 ```
+
+**Environment Variables:**
+- `backend/.env` should contain `PORT`, `MONGODB_URI`, `REDIS_HOST`, `REDIS_PORT`, and `GEMINI_API_KEY`.
+- Use the example files in the repo as templates.
 
 ---
 
