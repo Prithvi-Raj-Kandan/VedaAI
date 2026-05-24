@@ -71,6 +71,15 @@ export default function CreateAssignmentPage() {
   const onSubmit = async (data: FormValues) => {
     setIsSubmitting(true);
     try {
+      console.log('[create-assignment] submit payload', {
+        title: data.title,
+        hasSelectedFile: Boolean(selectedFile),
+        selectedFileName: selectedFile?.name || null,
+        selectedFileType: selectedFile?.type || null,
+        selectedFileSize: selectedFile?.size || 0,
+        questionsCount: data.questions.length,
+      });
+
       const payload = new FormData();
       payload.append('title', data.title);
       payload.append('dueDate', data.dueDate);
@@ -85,6 +94,13 @@ export default function CreateAssignmentPage() {
 
       if (selectedFile) {
         payload.append('materialFile', selectedFile);
+        console.log('[create-assignment] appended materialFile to FormData', {
+          name: selectedFile.name,
+          type: selectedFile.type,
+          size: selectedFile.size,
+        });
+      } else {
+        console.warn('[create-assignment] no file selected, sending assignment without fileContext');
       }
 
       const response = await fetch('http://localhost:8000/api/assignment', {
