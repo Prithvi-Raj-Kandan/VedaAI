@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { io, Socket } from 'socket.io-client';
+import { toast } from 'sonner';
 
 interface AssignmentStore {
   socket: Socket | null;
@@ -29,6 +30,16 @@ export const useAssignmentStore = create<AssignmentStore>((set, get) => ({
       if (activeId) {
         newSocket.emit('joinAssignment', activeId);
       }
+    });
+
+    newSocket.on('disconnect', (reason) => {
+      console.log('Socket disconnected', reason);
+      toast.error('Live updates disconnected');
+    });
+
+    newSocket.on('connect_error', (error) => {
+      console.error('Socket connect error:', error);
+      toast.error('Failed to connect live updates');
     });
 
     newSocket.on('assignment-updated', (data) => {

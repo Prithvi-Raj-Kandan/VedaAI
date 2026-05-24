@@ -5,6 +5,8 @@ import Assignment from './models/Assignment.js';
 import SYSTEM_PROMPT from './prompts/systemPrompt.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Redis } from 'ioredis';
+import { createHash } from 'node:crypto';
+import { z } from 'zod';
 
 dotenv.config();
 
@@ -22,6 +24,17 @@ const normalizeGeneratedPaper = (paper: any) => {
         return { sections: [] };
     }
 
+    const normalizeDifficulty = (value: unknown) => {
+        const difficulty = String(value ?? 'medium').trim().toLowerCase();
+        if (difficulty === 'moderate') {
+            return 'medium';
+        }
+        if (difficulty === 'easy' || difficulty === 'medium' || difficulty === 'hard') {
+            return difficulty;
+        }
+        return 'medium';
+    };
+
     const sections = Array.isArray(paper.sections) ? paper.sections : [];
     return {
         ...paper,
@@ -35,13 +48,65 @@ const normalizeGeneratedPaper = (paper: any) => {
                     ...q,
                     // Frontend currently reads `questionText`.
                     questionText: q?.questionText ?? q?.text ?? '',
-                    difficulty: q?.difficulty ?? 'Medium',
+                    difficulty: normalizeDifficulty(q?.difficulty),
                     marks: Number(q?.marks ?? 0),
                     id: q?.id ?? `q${index + 1}`,
                 }))
             };
         })
     };
+};
+
+const generatedQuestionSchema = z.object({
+    id: z.string().min(1).max(16),
+    questionText: z.string().min(1),
+    type: z.enum(['mcq', 'short_answer', 'long_answer', 'numeric']).optional(),
+    marks: z.number().finite().nonnegative(),
+    difficulty: z.enum(['easy', 'medium', 'hard'])
+});
+
+const generatedSectionSchema = z.object({
+    title: z.string().min(1),
+    instruction: z.string().min(1),
+    sectionTotalMarks: z.number().finite().nonnegative().optional(),
+    choiceMode: z.enum(['single', 'multiple', 'none']).optional(),
+    questions: z.array(generatedQuestionSchema).min(1)
+});
+
+const generatedPaperSchema = z.object({
+    sections: z.array(generatedSectionSchema).min(1)
+});
+
+const parseAndValidateGeneratedPaper = (text: string) => {
+    let parsed: unknown;
+
+    try {
+        parsed = JSON.parse(text);
+    } catch (error) {
+        throw new Error(`Gemini returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    const normalized = normalizeGeneratedPaper(parsed);
+    const validation = generatedPaperSchema.safeParse(normalized);
+
+    if (!validation.success) {
+        throw new Error(`Gemini output failed validation: ${validation.error.message}`);
+    }
+
+    return validation.data;
+};
+
+const buildCacheKey = (assignment: any) => {
+    const cacheMaterial = JSON.stringify({
+        title: assignment.title,
+        fileContext: assignment.fileContext || '',
+        questions: assignment.questions || [],
+        additionalInfo: assignment.additionalInfo || '',
+        totalMarks: assignment.totalMarks || 0,
+        passingMarks: assignment.passingMarks || 0,
+    });
+
+    return `vedaai:assignment-generation:${createHash('sha256').update(cacheMaterial).digest('hex')}`;
 };
 
 const redisHost = process.env.REDIS_HOST || '127.0.0.1';
@@ -150,6 +215,62 @@ const worker = new Worker('AIGenerationQueue', async (job) => {
             return sum + (q.totalQuestions * marksPerQuestion);
         }, 0);
 
+        const cacheKey = buildCacheKey(assignment);
+        const shouldUseCache = source !== 'regenerate';
+        workerLog('Cache lookup started', { assignmentId, cacheKey, shouldUseCache, source });
+
+        const cachedPaper = shouldUseCache ? await redisPub.get(cacheKey) : null;
+        if (cachedPaper) {
+            workerLog('Cache hit', { assignmentId, cacheKey });
+            let generatedPaper;
+            try {
+                generatedPaper = normalizeGeneratedPaper(JSON.parse(cachedPaper));
+            } catch (cacheParseError) {
+                workerLog('Cached paper parse failed, continuing with live generation', {
+                    assignmentId,
+                    cacheKey,
+                    error: cacheParseError instanceof Error ? cacheParseError.message : String(cacheParseError)
+                });
+                generatedPaper = null;
+            }
+
+            if (generatedPaper) {
+            assignment.status = 'completed';
+            assignment.generatedPaper = generatedPaper;
+
+            const nextVersion = (assignment.generatedPaperVersions?.length || 0) + 1;
+            assignment.generatedPaperVersions = [
+                ...(assignment.generatedPaperVersions || []),
+                {
+                    versionNumber: nextVersion,
+                    generatedAt: new Date(),
+                    source,
+                    generatedPaper,
+                }
+            ];
+            assignment.activeVersion = nextVersion;
+            await assignment.save();
+
+            workerLog('Cached paper saved', {
+                assignmentId,
+                versionNumber: nextVersion,
+                cacheKey
+            });
+
+            await redisPub.publish('assignment-updates', JSON.stringify({
+                assignmentId,
+                status: 'completed',
+                assignment
+            }));
+            workerLog('Published status update', { assignmentId, status: 'completed' });
+
+            workerLog('Job completed successfully from cache', { jobId: job.id, assignmentId });
+            return { success: true, cached: true };
+            }
+        }
+
+        workerLog('Cache miss', { assignmentId, cacheKey, shouldUseCache, source });
+
                 const userPrompt = `
 You are an AI Assessment Creator. Generate a question paper based on the following assignment details:
 Title: ${assignment.title}
@@ -206,8 +327,8 @@ Return ONLY valid JSON, without any markdown formatting. Do not wrap in \`\`\`js
             text = text.substring(3, text.length - 3).trim();
         }
         
-        const generatedPaper = normalizeGeneratedPaper(JSON.parse(text));
-        workerLog('LLM response parsed', {
+        const generatedPaper = parseAndValidateGeneratedPaper(text);
+        workerLog('LLM response parsed and validated', {
             assignmentId,
             responseLength: text.length,
             hasSections: Array.isArray(generatedPaper?.sections),
@@ -234,6 +355,13 @@ Return ONLY valid JSON, without any markdown formatting. Do not wrap in \`\`\`js
             assignmentId,
             versionNumber: nextVersion,
             status: assignment.status
+        });
+
+        await redisPub.set(cacheKey, JSON.stringify(generatedPaper), 'EX', 60 * 60 * 24);
+        workerLog('Cached generated paper', {
+            assignmentId,
+            cacheKey,
+            ttlSeconds: 60 * 60 * 24
         });
 
         await redisPub.publish('assignment-updates', JSON.stringify({
