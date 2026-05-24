@@ -31,10 +31,10 @@ export default function Sidebar() {
 
       {/* Create Assignment Button */}
       <div className="p-4 w-full">
-        <button className="w-full py-3 px-4 bg-gray-800 text-white rounded-full font-semibold flex items-center justify-center gap-2 border-2 border-orange-500 hover:shadow-lg transition-all">
+        <Link href="/create" className="w-full py-3 px-4 bg-gray-800 text-white rounded-full font-semibold flex items-center justify-center gap-2 border-2 border-orange-500 hover:shadow-lg transition-all">
           <span className="text-lg">✨</span>
           Create Assignment
-        </button>
+        </Link>
       </div>
 
       {/* Menu Items */}

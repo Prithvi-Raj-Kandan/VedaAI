@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { Search, Filter } from 'lucide-react'
 import Header from './Header'
 import AssignmentCard from './AssignmentCard'
@@ -68,10 +69,10 @@ export default function AssignmentsList() {
 
       {/* Create Button */}
       <div className="flex justify-center pt-4">
-        <button className="px-8 py-3 bg-gray-800 text-white rounded-full font-semibold hover:bg-gray-900 transition-colors flex items-center gap-2 border-2 border-orange-500">
+        <Link href="/create" className="px-8 py-3 bg-gray-800 text-white rounded-full font-semibold hover:bg-gray-900 transition-colors flex items-center gap-2 border-2 border-orange-500">
           <Plus className="w-5 h-5" />
           Create Assignment
-        </button>
+        </Link>
       </div>
     </div>
   )

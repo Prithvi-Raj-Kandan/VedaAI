@@ -225,6 +225,16 @@ Make the generated paper visually closer to the provided sample output.
 
 Use the `frontend-v2` folder as the visual baseline while preserving the current working features.
 
+**Progress Update:**
+- The v2 create flow now posts to the backend assignment endpoint and routes to the generated output screen.
+- The sidebar and assignments page create actions now navigate to `/create`.
+- The output screen now supports regenerate, version selection, and PDF export in the v2 UI.
+- The create form now matches the v1 data contract: target marks, passing marks, full question-type list, date picker, and `questions` payload.
+- The new `/assignments/[id]` route restores the intermediate waiting/generation screen instead of skipping directly to output.
+- The home page is now a simple landing page and no longer reuses the assignments list UI.
+- The output page now renders a paper-like layout with the test metadata and student information lines instead of the rounded preview card.
+- The create form no longer shows the premature success toast, the marks inputs start empty, the stepper/counter controls are removed, and the loading page shows explicit completion ticks.
+
 **Done when:**
 - The `frontend-v2` CSS/layout language becomes the primary UI.
 - Existing functionality from the original frontend is copied over intact.
@@ -245,13 +255,26 @@ Add account management so users can own their assignment history.
 ---
 
 ### VEDA-111: Under-Development Routes
-**Priority: P1 | Day 1**
+**Priority: P1 | Day 1 | ✅ COMPLETE**
 
 Replace unfinished 404 paths with intentional product messaging.
 
 **Done when:**
 - Unfinished pages display an under development message.
 - Users are not dropped into generic 404 pages for planned areas.
+
+**Implementation Details:**
+- Created reusable `UnderDevelopment.tsx` component with Hammer icon, feature name, custom message, and "Go Back" button.
+- Created stub pages for planned routes: `/settings`, `/dashboard`, `/help`, `/about`.
+- Each page has appropriate messaging (Profile & Settings, Dashboard, Help & Documentation, About VedaAI).
+- All routes compile successfully and render the under-development UX instead of 404s.
+
+**Completed Artifacts:**
+- `frontend/src/components/UnderDevelopment.tsx` — Reusable component
+- `frontend/src/app/settings/page.tsx` — Profile/Settings (for VEDA-110)
+- `frontend/src/app/dashboard/page.tsx` — User dashboard
+- `frontend/src/app/help/page.tsx` — Help documentation
+- `frontend/src/app/about/page.tsx` — About VedaAI
 
 ---
 
