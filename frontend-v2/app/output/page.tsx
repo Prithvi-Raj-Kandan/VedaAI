@@ -1,7 +1,5 @@
-'use client'
-
-import AssignmentOutput from '@/components/AssignmentOutput'
+import OutputClient from '@/components/OutputClient'
 
 export default function OutputPage() {
-  return <AssignmentOutput />
+  return <OutputClient />
 }

@@ -2,6 +2,7 @@
 
 import { Bell, ChevronDown } from 'lucide-react'
 import Link from 'next/link'
+import { useUserStore } from '@/store/useUserStore'
 
 interface HeaderProps {
   title?: string
@@ -9,6 +10,8 @@ interface HeaderProps {
 }
 
 export default function Header({ title, backLink }: HeaderProps) {
+  const user = useUserStore((state) => state.user)
+
   return (
     <header className="bg-white rounded-3xl shadow-sm p-4">
       <div className="flex items-center justify-between">
@@ -35,10 +38,10 @@ export default function Header({ title, backLink }: HeaderProps) {
           {/* Profile Dropdown */}
           <button className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 rounded-lg transition-colors">
             <div className="w-8 h-8 bg-gradient-to-br from-orange-300 to-orange-400 rounded-lg flex items-center justify-center text-sm font-bold text-white">
-              JD
+              {user?.displayName?.slice(0, 2).toUpperCase() || 'JD'}
             </div>
             <div className="text-left hidden sm:block">
-              <p className="text-sm font-medium text-gray-900">John Doe</p>
+              <p className="text-sm font-medium text-gray-900">{user?.displayName || 'Guest User'}</p>
             </div>
             <ChevronDown className="w-4 h-4 text-gray-400" />
           </button>

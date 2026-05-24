@@ -2,9 +2,12 @@
 
 import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Upload, X, Plus } from 'lucide-react'
 import Header from './Header'
 import { toast } from 'sonner'
+import { apiFetch } from '@/lib/api'
+import { useUserStore } from '@/store/useUserStore'
 
 type QuestionType = {
   questionType: string
@@ -24,6 +27,7 @@ const QUESTION_TYPE_OPTIONS = [
 
 export default function CreateAssignment() {
   const router = useRouter()
+  const user = useUserStore((state) => state.user)
   const [title, setTitle] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -115,7 +119,7 @@ export default function CreateAssignment() {
         form.append('materialFile', selectedFile)
       }
 
-      const response = await fetch('http://localhost:8000/api/assignment', {
+      const response = await apiFetch('/api/assignment', {
         method: 'POST',
         body: form,
       })
@@ -143,6 +147,21 @@ export default function CreateAssignment() {
       console.error(error)
       toast.error(error instanceof Error ? error.message : 'Failed to create assignment')
     }
+  }
+
+  if (!user) {
+    return (
+      <div className="space-y-6">
+        <Header title="Create Assignment" backLink="/" />
+        <div className="rounded-3xl border border-dashed border-gray-200 bg-white px-6 py-16 text-center shadow-sm">
+          <h3 className="text-lg font-semibold text-gray-900">Sign in to create assignments</h3>
+          <p className="mt-2 text-sm text-gray-600">Creating and saving assignments now belongs to the signed-in user profile.</p>
+          <Link href="/signin" className="mt-6 inline-flex rounded-full bg-gray-900 px-5 py-3 font-medium text-white hover:bg-gray-800">
+            Go to sign in
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   return (

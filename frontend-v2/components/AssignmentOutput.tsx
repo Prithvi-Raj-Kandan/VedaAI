@@ -1,10 +1,13 @@
-"use client"
+﻿"use client"
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, Download, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAssignmentStore } from '@/hooks/useAssignmentStore'
+import { apiFetch } from '@/lib/api'
+import { useUserStore } from '@/store/useUserStore'
 
 interface AssignmentOutputProps {
   assignmentId?: string
@@ -12,17 +15,31 @@ interface AssignmentOutputProps {
 
 export default function AssignmentOutput({ assignmentId }: AssignmentOutputProps) {
   const router = useRouter()
+  const user = useUserStore((state) => state.user)
   const [id, setId] = useState<string | null>(assignmentId || null)
+  const [loadingTipIndex, setLoadingTipIndex] = useState(0)
+  const [isLoading, setIsLoading] = useState(true)
 
-  const { connectSocket, setActiveAssignment, setGeneratedData, assignmentStatus, generatedData } = useAssignmentStore()
+  const { connectSocket, setActiveAssignment, setGeneratedData, assignmentStatus, generatedData, progressStage, progressMessage } = useAssignmentStore()
 
   const [assignment, setAssignment] = useState<any>(null)
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const [isRegenerating, setIsRegenerating] = useState(false)
 
+  const loadingTips = [
+    'Reviewing the uploaded material and assignment settings...',
+    'Balancing question types, marks, and difficulty...',
+    'Checking the draft for structure and coverage...',
+    'Saving the final paper and preparing the preview...',
+  ]
+  const paper = useMemo(() => generatedData || assignment?.generatedPaper, [assignment?.generatedPaper, generatedData])
+  const paperIsLoading = assignmentStatus === 'pending' || assignmentStatus === 'processing' || (!paper && assignmentStatus !== 'failed')
+  
+
   const fetchAssignment = async (assignmentId: string) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/assignment/${assignmentId}`)
+      setIsLoading(true)
+      const res = await apiFetch(`/api/assignment/${assignmentId}`)
       if (!res.ok) throw new Error('Failed to fetch')
       const data = await res.json()
       setAssignment(data)
@@ -44,6 +61,8 @@ export default function AssignmentOutput({ assignmentId }: AssignmentOutputProps
       }
     } catch (err) {
       console.error(err)
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -81,9 +100,24 @@ export default function AssignmentOutput({ assignmentId }: AssignmentOutputProps
     }
   }, [assignmentStatus])
 
+  
+
+  useEffect(() => {
+    if (!paperIsLoading) {
+      setLoadingTipIndex(0)
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      setLoadingTipIndex((current) => (current + 1) % loadingTips.length)
+    }, 2400)
+
+    return () => window.clearInterval(intervalId)
+  }, [paperIsLoading])
+
   const handleDownloadPDF = async () => {
-    const paper = generatedData || assignment?.generatedPaper
-    if (!paper?.sections?.length) {
+    const currentPaper = generatedData || assignment?.generatedPaper
+    if (!currentPaper?.sections?.length) {
       toast.error('No generated paper available to download')
       return
     }
@@ -214,7 +248,7 @@ export default function AssignmentOutput({ assignmentId }: AssignmentOutputProps
       }
 
       drawPageHeader(false)
-      paper.sections.forEach((section: any, index: number) => drawSection(section, index))
+      currentPaper.sections.forEach((section: any, index: number) => drawSection(section, index))
 
       const footerY = Math.min(pageHeight - margin + 6, y + 24)
       if (footerY < pageHeight - 20) {
@@ -241,7 +275,7 @@ export default function AssignmentOutput({ assignmentId }: AssignmentOutputProps
     if (!id) return
     try {
       setIsRegenerating(true)
-      const res = await fetch(`http://localhost:8000/api/assignment/${id}/regenerate`, { method: 'POST' })
+      const res = await apiFetch(`/api/assignment/${id}/regenerate`, { method: 'POST' })
       if (!res.ok) throw new Error('Failed to regenerate')
       setGeneratedData(null, 'pending')
     } catch (err) {
@@ -257,10 +291,33 @@ export default function AssignmentOutput({ assignmentId }: AssignmentOutputProps
     if (version) setGeneratedData(version.generatedPaper, 'completed')
   }
 
-  const paper = useMemo(() => generatedData || assignment?.generatedPaper, [assignment?.generatedPaper, generatedData])
-  const isLoading = assignmentStatus === 'pending' || assignmentStatus === 'processing' || (!paper && assignmentStatus !== 'failed')
 
-  if (isLoading) {
+
+  const progressSteps = [
+    { key: 'pdf_processed', label: 'PDF processed' },
+    { key: 'questions_drafted', label: 'Questions drafted' },
+    { key: 'sections_finalized', label: 'Sections finalized' },
+    { key: 'paper_saved', label: 'Paper saved' },
+  ] as const
+
+  const resolvedStage = progressStage ?? assignment?.progressStage ?? (assignmentStatus === 'completed' ? 'paper_saved' : null)
+  const activeStepIndex = progressSteps.findIndex((step) => step.key === resolvedStage)
+
+  if (!user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-center text-white">
+        <div className="space-y-4 rounded-3xl border border-white/10 bg-white/5 px-8 py-14 shadow-2xl backdrop-blur">
+          <div className="text-2xl font-bold">Sign in to view this assignment</div>
+          <p className="text-slate-300">Assignments are now tied to the signed-in user profile.</p>
+          <Link href="/signin" className="inline-flex rounded-full bg-white px-6 py-3 font-medium text-slate-900 hover:bg-slate-100">
+            Go to sign in
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  if (paperIsLoading) {
     return (
       <div className="h-full min-h-screen bg-slate-950 px-6 py-8 text-center text-white">
         <div className="mx-auto flex min-h-[70vh] max-w-3xl flex-col items-center justify-center gap-6 rounded-3xl border border-white/10 bg-white/5 px-6 py-16 shadow-2xl backdrop-blur">
@@ -268,20 +325,23 @@ export default function AssignmentOutput({ assignmentId }: AssignmentOutputProps
           <div className="space-y-2">
             <h2 className="text-3xl font-bold">Generating Question Paper</h2>
             <p className="mx-auto max-w-xl text-slate-300">
-              AI is analyzing your requirements and structuring the perfect assessment...
+              Generating your response.
             </p>
           </div>
           <div className="space-y-3 text-sm text-slate-300">
-            <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-green-400 text-[11px] text-green-400">
-                <Check className="h-3 w-3" />
-              </span>
-              Requirements parsed successfully
-            </div>
-            <div className="flex items-center gap-3 rounded-xl border border-orange-200/20 bg-white/5 px-4 py-3">
-              <span className="h-5 w-5 animate-spin rounded-full border-2 border-orange-400 border-t-transparent" />
-              Structuring sections & questions
-            </div>
+            {progressSteps.map((step, index) => {
+              const isComplete = activeStepIndex >= index
+              const isActive = activeStepIndex === index
+
+              return (
+                <div key={step.key} className={`flex items-center gap-3 rounded-xl px-4 py-3 ${isActive ? 'border border-orange-200/20 bg-white/5' : 'border border-white/10 bg-white/5'}`}>
+                  <span className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${isComplete ? 'border-green-400 text-green-400' : 'border-slate-400 text-slate-400'}`}>
+                    {isComplete ? <Check className="h-3 w-3" /> : <span className="h-2 w-2 rounded-full bg-current" />}
+                  </span>
+                  <span className={isActive ? 'text-white' : 'text-slate-300'}>{step.label}</span>
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>

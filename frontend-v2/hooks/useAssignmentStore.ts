@@ -9,6 +9,8 @@ interface AssignmentStore {
   activeAssignmentId: string | null
   assignmentStatus: 'pending' | 'processing' | 'completed' | 'failed' | 'idle'
   generatedData: any | null
+  progressStage: 'pdf_processed' | 'questions_drafted' | 'sections_finalized' | 'paper_saved' | null
+  progressMessage: string | null
   connectSocket: () => void
   disconnectSocket: () => void
   setActiveAssignment: (id: string) => void
@@ -21,6 +23,8 @@ export const useAssignmentStore = create<AssignmentStore>((set, get) => ({
   activeAssignmentId: null,
   assignmentStatus: 'idle',
   generatedData: null,
+  progressStage: null,
+  progressMessage: null,
 
   connectSocket: () => {
     if (get().socket) return
@@ -48,6 +52,8 @@ export const useAssignmentStore = create<AssignmentStore>((set, get) => ({
       console.log('Received update:', data)
       set({
         assignmentStatus: data.status,
+        progressStage: data.stage ?? get().progressStage,
+        progressMessage: data.message ?? get().progressMessage,
         generatedData: data.assignment?.generatedPaper || get().generatedData,
       })
     })
@@ -68,12 +74,12 @@ export const useAssignmentStore = create<AssignmentStore>((set, get) => ({
     if (socket && socket.connected) {
       socket.emit('joinAssignment', id)
     }
-    set({ activeAssignmentId: id, assignmentStatus: 'pending', generatedData: null })
+    set({ activeAssignmentId: id, assignmentStatus: 'pending', generatedData: null, progressStage: null, progressMessage: null })
   },
 
   setGeneratedData: (data: any, status: 'pending' | 'processing' | 'completed' | 'failed') => {
     set({ generatedData: data, assignmentStatus: status })
   },
 
-  reset: () => set({ activeAssignmentId: null, assignmentStatus: 'idle', generatedData: null }),
+  reset: () => set({ activeAssignmentId: null, assignmentStatus: 'idle', generatedData: null, progressStage: null, progressMessage: null }),
 }))

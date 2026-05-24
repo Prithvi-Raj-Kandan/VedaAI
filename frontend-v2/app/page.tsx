@@ -1,50 +1,36 @@
 'use client'
 
 import Link from 'next/link'
-import { BookOpen, Sparkles, ArrowRight, FileText } from 'lucide-react'
+
+import { ArrowRight, BookOpen, LogIn, Sparkles } from 'lucide-react'
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white">
-      <section className="mx-auto flex min-h-screen w-full max-w-6xl items-center px-6 py-16">
-        <div className="grid w-full gap-10 lg:grid-cols-[1.25fr_0.75fr] lg:items-center">
-          <div className="space-y-8">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200">
+      <section className="mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-6 py-16">
+        <div className="w-full rounded-3xl border border-white/10 bg-white/5 p-8 shadow-2xl backdrop-blur sm:p-10">
+          <div className="space-y-4 text-center">
+            <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm text-slate-200">
               <Sparkles className="h-4 w-4 text-orange-400" />
-              VedaAI assignment builder
+              Veda AI Assignment Generator
             </div>
-
-            <div className="space-y-4">
-              <h1 className="max-w-2xl text-5xl font-bold tracking-tight text-white sm:text-6xl">
-                Create school-ready Assignments.
-              </h1>
-              <p className="max-w-2xl text-lg leading-8 text-slate-300">
-                Build an assignment, queue generation, review the live output, regenerate versions, and export a polished PDF without leaving the product flow.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-4">
-              <Link href="/create" className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-6 py-3 font-semibold text-slate-950 transition-colors hover:bg-orange-400">
-                <FileText className="h-4 w-4" />
-                Create Assignment
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link href="/assignments" className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-6 py-3 font-semibold text-white transition-colors hover:bg-white/10">
-                <BookOpen className="h-4 w-4" />
-                View Assignments
-              </Link>
-            </div>
+            <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">Generate assignments with a simple flow.</h1>
+            
           </div>
 
-          <div className="rounded-3xl border border-white/10 bg-white/10 p-6 shadow-2xl backdrop-blur">
-            <div className="space-y-4 rounded-2xl bg-slate-950/80 p-6">
-              <p className="text-sm uppercase tracking-[0.35em] text-slate-400">Workflow</p>
-              <div className="space-y-3 text-sm text-slate-200">
-                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">1. Add title, date, file, and question structure</div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">2. Generate paper in the background</div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">3. Review output, regenerate, or download PDF</div>
+          <div className="mt-10 grid gap-4 sm:grid-cols-2">
+            <Link href="/signin" className="group rounded-3xl border border-white/10 bg-slate-950/70 p-6 text-left transition-all hover:border-orange-400/40 hover:bg-slate-950">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Auth</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">Sign-In</h2>
+                </div>
+                <LogIn className="h-5 w-5 text-orange-400 transition-transform group-hover:translate-x-0.5" />
               </div>
-            </div>
+              <p className="mt-4 text-sm leading-6 text-slate-300">Open the sign-in page to enter your email and password.</p>
+            </Link>
+
+            
           </div>
         </div>
       </section>
