@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAssignmentStore } from '@/store/useAssignmentStore';
 import { Download, RefreshCw, Loader2, FileText, CheckCircle2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function AssignmentOutputPage() {
   const { id } = useParams() as { id: string };
@@ -20,8 +21,6 @@ export default function AssignmentOutputPage() {
   const [assignment, setAssignment] = useState<any>(null);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const [isRegenerating, setIsRegenerating] = useState(false);
-  const [isRestoringVersion, setIsRestoringVersion] = useState(false);
-  const printRef = useRef<HTMLDivElement>(null);
 
   const hydrateAssignment = (data: any) => {
     setAssignment(data);
@@ -67,27 +66,214 @@ export default function AssignmentOutputPage() {
     if (assignmentStatus === 'completed') {
       fetchAssignment().catch((err) => console.error(err));
       setIsRegenerating(false);
-      setIsRestoringVersion(false);
     }
 
     if (assignmentStatus === 'failed') {
       setIsRegenerating(false);
-      setIsRestoringVersion(false);
     }
   }, [assignmentStatus]);
 
   const handleDownloadPDF = async () => {
-    if (!printRef.current) return;
-    const html2pdf = (await import('html2pdf.js')).default;
-    const opt = {
-      margin:       0.5,
-      filename:     `${assignment?.title || 'Assignment'}.pdf`,
-      image:        { type: 'jpeg' as const, quality: 0.98 },
-      html2canvas:  { scale: 2 },
-      jsPDF:        { unit: 'in' as const, format: 'letter' as const, orientation: 'portrait' as const }
-    };
-    
-    html2pdf().set(opt).from(printRef.current).save();
+    const paper = generatedData || assignment?.generatedPaper;
+    if (!paper?.sections?.length) {
+      toast.error('No generated paper available to download');
+      return;
+    }
+
+    try {
+      const loadingToast = toast.loading('Preparing PDF...');
+
+      const { jsPDF } = await import('jspdf');
+      const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+      doc.setFont('helvetica', 'normal');
+      doc.setLineHeightFactor(1.15);
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 48;
+      const contentWidth = pageWidth - margin * 2;
+      let y = margin;
+
+      const formatDifficulty = (value: any) => {
+        const difficulty = String(value || 'medium').toLowerCase();
+        if (difficulty === 'easy') return { label: 'EASY', fill: [220, 252, 231] as [number, number, number], text: [22, 101, 52] as [number, number, number] };
+        if (difficulty === 'hard') return { label: 'HARD', fill: [254, 226, 226] as [number, number, number], text: [153, 27, 27] as [number, number, number] };
+        return { label: 'MEDIUM', fill: [254, 249, 195] as [number, number, number], text: [161, 98, 7] as [number, number, number] };
+      };
+
+      const drawPageHeader = (continued = false) => {
+        y = margin;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(continued ? 14 : 22);
+        doc.text(continued ? `${assignment?.title || 'ASSESSMENT'} (continued)` : (assignment?.title || 'ASSESSMENT'), pageWidth / 2, continued ? y + 8 : y + 14, { align: 'center' });
+
+        if (continued) {
+          doc.setDrawColor(17, 24, 39);
+          doc.setLineWidth(1);
+          doc.line(margin, y + 20, pageWidth - margin, y + 20);
+          y += 34;
+          return;
+        }
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(11);
+        doc.text(`Total Marks: ${assignment?.totalMarks || 100}`, margin, y + 42);
+        doc.text('Time Allowed: 2 Hours', pageWidth - margin, y + 42, { align: 'right' });
+
+        doc.setDrawColor(17, 24, 39);
+        doc.setLineWidth(1.2);
+        doc.line(margin, y + 54, pageWidth - margin, y + 54);
+
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Name:', margin, y + 92);
+        doc.text('Date:', pageWidth / 2 + 30, y + 92);
+        doc.text('Roll No:', margin, y + 124);
+        doc.text('Section:', pageWidth / 2 + 30, y + 124);
+
+        doc.setDrawColor(180, 180, 180);
+        doc.setLineWidth(0.7);
+        doc.line(margin + 50, y + 95, pageWidth / 2 - 18, y + 95);
+        doc.line(pageWidth / 2 + 75, y + 95, pageWidth - margin, y + 95);
+        doc.line(margin + 66, y + 127, pageWidth / 2 - 18, y + 127);
+        doc.line(pageWidth / 2 + 87, y + 127, pageWidth - margin, y + 127);
+
+        y += 160;
+      };
+
+      const ensureSpace = (requiredHeight: number) => {
+        if (y + requiredHeight > pageHeight - margin) {
+          doc.addPage();
+          drawPageHeader(true);
+        }
+      };
+
+      const writeWrappedText = (text: string, x: number, width: number) => {
+        const lines = doc.splitTextToSize(text || '', width);
+        doc.text(lines, x, y);
+        y += lines.length * 15;
+      };
+
+      const drawSection = (section: any, sectionIndex: number) => {
+        const sectionTitle = section?.title || `Section ${sectionIndex + 1}`;
+        const sectionInstruction = section?.instruction || '';
+
+        const titleHeight = sectionInstruction ? 48 : 34;
+        ensureSpace(titleHeight + 18);
+
+        doc.setFillColor(245, 245, 245);
+        doc.setDrawColor(17, 24, 39);
+        doc.setLineWidth(1.2);
+        doc.rect(margin, y, contentWidth, titleHeight, 'F');
+        doc.line(margin, y, margin, y + titleHeight);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.text(sectionTitle, margin + 12, y + 20);
+
+        if (sectionInstruction) {
+          doc.setFont('helvetica', 'italic');
+          doc.setFontSize(10);
+          doc.text(doc.splitTextToSize(sectionInstruction, contentWidth - 24), margin + 12, y + 36);
+        }
+
+        y += titleHeight + 14;
+
+        (section.questions || []).forEach((question: any, questionIndex: number) => {
+          const questionText = String(question?.questionText || '');
+          const wrappedQuestion = doc.splitTextToSize(questionText, contentWidth - 66);
+          const questionHeight = wrappedQuestion.length * 15 + 28;
+          ensureSpace(questionHeight + 8);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(11);
+          doc.text(`Q${questionIndex + 1}.`, margin, y);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(11);
+          doc.text(wrappedQuestion, margin + 34, y);
+
+          const badge = formatDifficulty(question?.difficulty);
+          const badgeY = y + wrappedQuestion.length * 15 + 5;
+          doc.setFillColor(...badge.fill);
+          doc.setDrawColor(...badge.fill);
+          doc.rect(margin + 34, badgeY, 56, 16, 'F');
+          doc.setTextColor(...badge.text);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8.5);
+          doc.text(badge.label, margin + 62, badgeY + 10.5, { align: 'center' });
+
+          doc.setTextColor(75, 85, 99);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.text(`[${question?.marks || 0} ${Number(question?.marks) === 1 ? 'Mark' : 'Marks'}]`, margin + 96, badgeY + 10.5);
+
+          y = badgeY + 26;
+        });
+      };
+
+      drawPageHeader(false);
+      paper.sections.forEach((section: any, index: number) => drawSection(section, index));
+
+      const footerY = Math.min(pageHeight - margin + 6, y + 24);
+      if (footerY < pageHeight - 20) {
+        doc.setDrawColor(209, 213, 219);
+        doc.setLineWidth(0.8);
+        doc.line(margin, footerY, pageWidth - margin, footerY);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(156, 163, 175);
+        doc.text('*** End of Paper ***', pageWidth / 2, footerY + 18, { align: 'center' });
+      }
+
+      doc.save(`${assignment?.title || 'Assignment'}.pdf`);
+      toast.dismiss(loadingToast);
+      toast.success('PDF downloaded');
+    } catch (error) {
+      console.error('PDF export failed:', error);
+      toast.dismiss();
+      toast.error('PDF download failed');
+    }
+  };
+
+  const renderSections = (paper: any) => {
+    if (!paper?.sections?.length) {
+      return null;
+    }
+
+    return paper.sections.map((section: any, sIndex: number) => (
+      <div key={sIndex} className="space-y-4 break-inside-avoid-page">
+        <div className="border-l-4 border-gray-900 bg-gray-50 px-4 py-3">
+          <h3 className="text-base font-bold text-gray-900">{section.title}</h3>
+          {section.instruction && <p className="text-sm text-gray-600 italic mt-1">{section.instruction}</p>}
+        </div>
+
+        <div className="space-y-6 px-2">
+          {section.questions?.map((q: any, qIndex: number) => (
+            <div key={qIndex} className="break-inside-avoid-page">
+              <div className="flex gap-3">
+                <span className="font-semibold text-gray-900 min-w-[28px]">Q{qIndex + 1}.</span>
+                <div className="flex-1 space-y-2">
+                  <p className="text-gray-900 leading-relaxed text-base">{q.questionText}</p>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-[11px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
+                      q.difficulty?.toLowerCase() === 'easy' ? 'bg-green-100 text-green-700' :
+                      q.difficulty?.toLowerCase() === 'hard' ? 'bg-red-100 text-red-700' :
+                      'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {q.difficulty}
+                    </span>
+                    <span className="text-sm font-semibold text-gray-500">
+                      [{q.marks} {q.marks === 1 ? 'Mark' : 'Marks'}]
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    ));
   };
 
   const handleRegenerate = async () => {
@@ -104,6 +290,7 @@ export default function AssignmentOutputPage() {
       setGeneratedData(null, 'pending');
     } catch (error) {
       console.error(error);
+      toast.error('Failed to regenerate assignment');
       setIsRegenerating(false);
     }
   };
@@ -113,28 +300,6 @@ export default function AssignmentOutputPage() {
     const version = assignment?.generatedPaperVersions?.find((v: any) => v.versionNumber === versionNumber);
     if (version) {
       setGeneratedData(version.generatedPaper, 'completed');
-    }
-  };
-
-  const handleRestoreVersion = async () => {
-    if (!selectedVersion) return;
-
-    try {
-      setIsRestoringVersion(true);
-      const response = await fetch(`http://localhost:8000/api/assignment/${id}/versions/${selectedVersion}/restore`, {
-        method: 'POST'
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to restore version');
-      }
-
-      const data = await response.json();
-      hydrateAssignment(data.assignment);
-      setIsRestoringVersion(false);
-    } catch (error) {
-      console.error(error);
-      setIsRestoringVersion(false);
     }
   };
 
@@ -192,13 +357,6 @@ export default function AssignmentOutputPage() {
                     </option>
                   ))}
               </select>
-              <button
-                onClick={handleRestoreVersion}
-                disabled={!selectedVersion || isRestoringVersion}
-                className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-              >
-                {isRestoringVersion ? 'Restoring...' : 'Restore'}
-              </button>
             </div>
           )}
           <button 
@@ -221,11 +379,7 @@ export default function AssignmentOutputPage() {
 
       {/* Paper Container */}
       <div className="flex-1 overflow-y-auto p-8 relative">
-        <div 
-          ref={printRef}
-          className="max-w-4xl mx-auto bg-white p-12 shadow-sm border border-gray-200 rounded-sm"
-          style={{ minHeight: '1056px' }}
-        >
+        <div className="max-w-4xl mx-auto bg-white p-12 shadow-sm border border-gray-200 rounded-sm" style={{ minHeight: '1056px' }}>
           {/* Header */}
           <div className="text-center mb-10 pb-6 border-b-2 border-gray-900">
             <h1 className="text-3xl font-bold uppercase tracking-wider mb-2">{assignment?.title || 'ASSESSMENT'}</h1>
@@ -257,38 +411,7 @@ export default function AssignmentOutputPage() {
 
           {/* Sections */}
           <div className="space-y-12">
-            {generatedData?.sections?.map((section: any, sIndex: number) => (
-              <div key={sIndex} className="space-y-6">
-                <div className="bg-gray-50/80 p-4 border-l-4 border-gray-900 rounded-r-lg">
-                  <h3 className="text-lg font-bold text-gray-900 mb-1">{section.title}</h3>
-                  {section.instruction && <p className="text-sm text-gray-600 italic">{section.instruction}</p>}
-                </div>
-                
-                <div className="space-y-8 px-4">
-                  {section.questions?.map((q: any, qIndex: number) => (
-                    <div key={qIndex} className="flex gap-4">
-                      <span className="font-semibold text-gray-900 min-w-[24px]">Q{qIndex + 1}.</span>
-                      <div className="flex-1 space-y-3">
-                        <p className="text-gray-900 leading-relaxed text-base">{q.questionText}</p>
-                        
-                        <div className="flex items-center gap-3">
-                          <span className={`text-[11px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${
-                            q.difficulty?.toLowerCase() === 'easy' ? 'bg-green-100 text-green-700' :
-                            q.difficulty?.toLowerCase() === 'hard' ? 'bg-red-100 text-red-700' :
-                            'bg-yellow-100 text-yellow-700'
-                          }`}>
-                            {q.difficulty}
-                          </span>
-                          <span className="text-sm font-semibold text-gray-500">
-                            [{q.marks} {q.marks === 1 ? 'Mark' : 'Marks'}]
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+            {renderSections(generatedData)}
           </div>
           
           <div className="mt-20 pt-8 border-t border-gray-200 text-center text-xs text-gray-400 uppercase tracking-widest">
@@ -296,6 +419,7 @@ export default function AssignmentOutputPage() {
           </div>
         </div>
       </div>
+
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useAssignmentStore } from '@/store/useAssignmentStore';
+import { toast } from 'sonner';
 
 const QUESTION_TYPE_OPTIONS = [
   'Multiple Choice',
@@ -108,14 +109,23 @@ export default function CreateAssignmentPage() {
         body: payload
       });
       
-      if (!response.ok) throw new Error("Failed to create assignment");
+      if (!response.ok) {
+        let message = 'Failed to create assignment';
+        try {
+          const errorData = await response.json();
+          message = errorData?.message || message;
+        } catch {
+          // keep default message
+        }
+        throw new Error(message);
+      }
       
       const resData = await response.json();
       setActiveAssignment(resData.assignment._id);
       router.push(`/assignments/${resData.assignment._id}`);
     } catch (error) {
       console.error(error);
-      alert("Failed to create assignment");
+      toast.error(error instanceof Error ? error.message : 'Failed to create assignment');
     } finally {
       setIsSubmitting(false);
     }
