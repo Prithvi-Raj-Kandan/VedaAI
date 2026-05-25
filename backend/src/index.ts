@@ -9,7 +9,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { Redis } from 'ioredis';
 import multer from 'multer';
-import { PDFParse } from 'pdf-parse';
+import pdfParse from 'pdf-parse';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 
 dotenv.config();
@@ -312,10 +312,8 @@ app.post("/api/assignment", upload.single('materialFile'), async (req, res) => {
           });
 
           if (req.file.mimetype === 'application/pdf') {
-            const parser = new PDFParse({ data: req.file.buffer });
-            const parsed = await parser.getText();
+            const parsed = await pdfParse(req.file.buffer);
             extractedText = parsed.text?.trim() || '';
-            await parser.destroy();
           } else if (req.file.mimetype === 'text/plain') {
             extractedText = req.file.buffer.toString('utf-8').trim();
           } else {
