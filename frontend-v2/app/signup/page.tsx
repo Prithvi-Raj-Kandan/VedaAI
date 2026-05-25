@@ -49,60 +49,63 @@ export default function SignUpPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 px-6 py-12 text-white">
-      <section className="mx-auto grid min-h-[calc(100vh-6rem)] w-full max-w-5xl gap-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
-        <div className="space-y-6">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200">
-            <UserPlus className="h-4 w-4 text-orange-400" />
-            Sign up page
-          </div>
-          <div className="space-y-4">
-            <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">Create your account.</h1>
-            <p className="max-w-xl text-base leading-7 text-slate-300">
-              Enter your name, email, and password, then continue to sign in with the same email and password.
-            </p>
-          </div>
-
-          <Link href="/signin" className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-5 py-3 font-medium text-white transition-colors hover:bg-white/10">
-            Back to sign in
-          </Link>
-        </div>
-
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur md:p-8">
-          <form onSubmit={handleSignUp} className="space-y-4 rounded-2xl border border-white/10 bg-slate-950/80 p-6">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-wider text-orange-400">New account</p>
-              <h2 className="mt-1 text-2xl font-bold text-white">Sign up</h2>
+    <main className="min-h-screen bg-white text-slate-900">
+      <section className="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-6 py-16">
+        <div className="w-full space-y-8">
+          <div className="space-y-4 text-center">
+            <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
+              <UserPlus className="h-4 w-4 text-orange-500" />
+              Sign up page
             </div>
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Name"
-              className="w-full rounded-full border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-orange-400"
-            />
-            <input
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="Email ID"
-              type="email"
-              className="w-full rounded-full border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-orange-400"
-            />
-            <input
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="Password"
-              type="password"
-              className="w-full rounded-full border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-orange-400"
-            />
-            <button
-              type="submit"
-              disabled={isSigningUp}
-              className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-5 py-3 font-semibold text-slate-950 transition-colors hover:bg-orange-400 disabled:opacity-70"
-            >
-              {isSigningUp && <Loader2 className="h-4 w-4 animate-spin" />}
-              Sign Up
-            </button>
-          </form>
+            <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">Create your account.</h1>
+            <p className="mx-auto max-w-xl text-base leading-7 text-slate-600">An AI academic system for assessment, teaching, and personalised learning.</p>
+          </div>
+
+          <div className="mx-auto w-full max-w-md">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-md">
+              <form onSubmit={handleSignUp} className="space-y-4">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-wider text-slate-500">New account</p>
+                  <h2 className="mt-1 text-2xl font-bold text-slate-900">Sign up</h2>
+                </div>
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Name"
+                  className="w-full rounded-full border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-orange-400"
+                />
+                <input
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="Email ID"
+                  type="email"
+                  className="w-full rounded-full border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-orange-400"
+                />
+                <input
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Password"
+                  type="password"
+                  className="w-full rounded-full border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-orange-400"
+                />
+                <button
+                  type="submit"
+                  disabled={isSigningUp}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-orange-500 px-5 py-3 font-semibold text-white transition-colors hover:bg-orange-600 disabled:opacity-70"
+                >
+                  {isSigningUp && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Sign Up
+                </button>
+
+                <p className="pt-2 text-sm text-slate-600">
+                  Already have an account?{' '}
+                  <Link href="/signin" className="font-semibold text-orange-500 hover:text-orange-400">
+                    Sign-In
+                  </Link>
+                </p>
+              </form>
+            </div>
+          </div>
         </div>
       </section>
     </main>

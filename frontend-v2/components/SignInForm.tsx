@@ -55,60 +55,62 @@ export default function SignInForm({ initialEmail = '' }: SignInFormProps) {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 px-6 py-12 text-white">
-      <section className="mx-auto grid min-h-[calc(100vh-6rem)] w-full max-w-6xl gap-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
-        <div className="space-y-6">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200">
-            <LogIn className="h-4 w-4 text-orange-400" />
+    <main className="min-h-screen bg-white px-6 py-12 text-slate-900 flex items-center justify-center">
+      <section className="mx-auto w-full max-w-2xl space-y-8 text-center">
+        <div className="space-y-3">
+          <div className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
+            <LogIn className="h-4 w-4 text-orange-500" />
             Sign in page
           </div>
-          <div className="space-y-4">
-            <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">Keep auth separate and simple.</h1>
-            <p className="max-w-xl text-base leading-7 text-slate-300">
-              Sign in with email and password, then open your assignments. If you do not have an account yet, go to the sign-up page first.
+          <div className="space-y-2">
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Log in to your account.</h1>
+            <p className="mx-auto max-w-xl text-base leading-7 text-slate-600">
+              An AI academic system for assessment, teaching, and personalised learning.
             </p>
           </div>
-
-          <Link href="/" className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-5 py-3 font-medium text-white transition-colors hover:bg-white/10">
-            Back to home
-          </Link>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-2xl backdrop-blur md:p-8">
-          <form onSubmit={handleSignIn} className="space-y-4 rounded-2xl border border-white/10 bg-slate-950/80 p-6">
+        <div className="mx-auto w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-lg">
+          <form onSubmit={handleSignIn} className="space-y-4">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-wider text-slate-400">Existing account</p>
-              <h2 className="mt-1 text-2xl font-bold text-white">Sign in</h2>
+              <p className="text-sm font-semibold uppercase tracking-wider text-slate-500">Existing account</p>
+              <h2 className="mt-1 text-2xl font-bold text-slate-900">Sign in</h2>
             </div>
             <input
               value={signinEmail}
               onChange={(event) => setSigninEmail(event.target.value)}
               placeholder="Email"
               type="email"
-              className="w-full rounded-full border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-orange-400"
+              className="w-full rounded-full border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-orange-400"
             />
             <input
               value={signinPassword}
               onChange={(event) => setSigninPassword(event.target.value)}
               placeholder="Password"
               type="password"
-              className="w-full rounded-full border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-orange-400"
+              className="w-full rounded-full border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-orange-400"
             />
             <button
               type="submit"
               disabled={isSigningIn}
-              className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 font-semibold text-slate-950 transition-colors hover:bg-slate-100 disabled:opacity-70"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-orange-500 px-5 py-3 font-semibold text-white transition-colors hover:bg-orange-600 disabled:opacity-70"
             >
               {isSigningIn && <Loader2 className="h-4 w-4 animate-spin" />}
               Sign In
             </button>
 
-            <p className="pt-2 text-sm text-slate-300">
+            <p className="pt-2 text-sm text-slate-600">
               Don&apos;t have an account?{' '}
-              <Link href="/signup" className="font-semibold text-orange-400 hover:text-orange-300">
+              <Link href="/signup" className="font-semibold text-orange-500 hover:text-orange-400">
                 Sign-Up
               </Link>
             </p>
+
+            <div className="pt-2 text-sm">
+              <Link href="/" className="inline-flex items-center justify-center rounded-full border border-slate-200 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                Back to home
+              </Link>
+            </div>
           </form>
         </div>
       </section>
