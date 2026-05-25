@@ -10,6 +10,9 @@
     "start": "tsx src/index.ts",
     "worker:start": "tsx src/worker.ts"
   },
+  "engines": {
+    "node": "20.x"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -24,6 +27,7 @@
     "mongoose": "^9.6.2",
     "multer": "^2.1.1",
     "pdf-parse": "^2.4.5",
+    "tsx": "^4.22.3",
     "socket.io": "^4.8.3",
     "zod": "^4.4.3"
   },
@@ -35,7 +39,6 @@
     "@types/pdf-parse": "^1.1.5",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
-    "tsx": "^4.22.3",
     "typescript": "^6.0.3"
   }
 }
