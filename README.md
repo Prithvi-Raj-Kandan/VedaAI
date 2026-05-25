@@ -79,7 +79,11 @@ Start the frontend development server:
 npm run dev
 ```
 
-If you want to configure the frontend API base URL later, copy `frontend/.env.local.example` to `frontend/.env.local`.
+If you want to configure the frontend API and socket URLs later, copy `frontend/.env.example` to `frontend/.env.local` and set:
+```env
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+NEXT_PUBLIC_SOCKET_URL=http://localhost:8000
+```
 
 ### 3. Open the App
 
@@ -91,3 +95,22 @@ Open your browser and navigate to [http://localhost:3000](http://localhost:3000)
 - **AI-Powered Generation:** The backend worker asynchronously generates the questions using Google Gemini AI.
 - **Real-Time Updates:** The UI receives live status updates via WebSockets as the AI finishes processing.
 - **Export to PDF:** Download the finalized AI-generated assignments as PDF documents.
+
+## Deployment
+
+For production deployment, use:
+- Frontend: Vercel
+- Backend API: AWS EC2
+- Database: MongoDB Atlas
+- Cache / queue broker: Redis Cloud, Upstash, or AWS ElastiCache
+
+### Step-by-Step Deployment
+1. Create a MongoDB Atlas cluster, database user, and allowlist your EC2 IP.
+2. Create a Redis instance and choose either `REDIS_URL` or `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD`.
+3. Set backend environment variables from `backend/.env.example` on EC2.
+4. Start the backend API with `npm run start` and the worker with `npm run worker:start`.
+5. Deploy the `frontend` folder to Vercel.
+6. Set `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_SOCKET_URL` to your EC2 backend URL in Vercel.
+7. Verify sign-in, sign-up, assignment generation, socket updates, and PDF export.
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the full deployment reference while you are working locally. It is ignored by Git so it stays as a personal runbook.

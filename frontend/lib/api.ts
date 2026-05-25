@@ -2,7 +2,7 @@
 
 import { useUserStore } from '@/store/useUserStore'
 
-const API_BASE = 'http://localhost:8000'
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
 
 export const getAuthHeaders = () => {
   const user = useUserStore.getState().user
@@ -30,7 +30,9 @@ export const apiFetch = async (input: string, init: RequestInit = {}) => {
     headers.set('Content-Type', 'application/json')
   }
 
-  return fetch(`${API_BASE}${input}`, {
+  const baseUrl = API_BASE.replace(/\/$/, '')
+
+  return fetch(`${baseUrl}${input}`, {
     ...init,
     headers,
   })

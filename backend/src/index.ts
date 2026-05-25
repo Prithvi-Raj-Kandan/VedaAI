@@ -24,12 +24,31 @@ const apiLog = (event: string, data?: Record<string, unknown>) => {
 };
 
 const app = express();
+const buildRedisConnection = () => {
+  if (process.env.REDIS_URL) {
+    return { url: process.env.REDIS_URL };
+  }
+
+  return {
+    host: process.env.REDIS_HOST || '127.0.0.1',
+    port: Number(process.env.REDIS_PORT || 6379),
+    password: process.env.REDIS_PASSWORD || undefined,
+    tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
+  };
+};
+
+const redisConnection = buildRedisConnection();
 const redisHost = process.env.REDIS_HOST || '127.0.0.1';
 const redisPort = Number(process.env.REDIS_PORT || 6379);
 const mongodbUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/vedaai';
 const defaultUserEmail = process.env.VEDAAI_DEFAULT_USER_EMAIL || 'teacher@vedaai.local';
 const defaultUserDisplayName = process.env.VEDAAI_DEFAULT_USER_NAME || 'Demo Teacher';
 const passwordKeyLength = 64;
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const corsOrigin = allowedOrigins.includes('*') ? true : allowedOrigins;
 
 const httpServer = createServer(app);
 const upload = multer({
@@ -38,15 +57,16 @@ const upload = multer({
 });
 const io = new Server(httpServer, {
   cors: {
-    origin: "http://localhost:3000",
-    methods: ["GET", "POST"]
+    origin: corsOrigin,
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
 // Since package.json has "type": "module" and we are compiling with tsc,
 // we might need to be careful with extensions. But ts-node can handle it.
 const AIGenerationQueue = new Queue('AIGenerationQueue', {
-  connection: { host: redisHost, port: redisPort }
+  connection: redisConnection as any
 });
 
 mongoose.connect(mongodbUri)
@@ -58,8 +78,8 @@ mongoose.connect(mongodbUri)
     });
 
 app.use(cors({
-    origin: ["http://localhost:3000"],
-    credentials: true
+  origin: corsOrigin,
+  credentials: true
 }));
 
 app.use(express.json());
@@ -220,8 +240,8 @@ io.on("connection", (socket) => {
   });
 });
 
-const redisSub = new Redis({ host: redisHost, port: redisPort });
-const redisPub = new Redis({ host: redisHost, port: redisPort });
+const redisSub = new Redis(redisConnection as any);
+const redisPub = new Redis(redisConnection as any);
 redisSub.subscribe('assignment-updates');
 redisSub.on('message', (channel: string, message: string) => {
   if (channel === 'assignment-updates') {

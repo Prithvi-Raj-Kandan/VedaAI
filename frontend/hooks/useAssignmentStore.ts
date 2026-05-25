@@ -28,7 +28,8 @@ export const useAssignmentStore = create<AssignmentStore>((set, get) => ({
 
   connectSocket: () => {
     if (get().socket) return
-    const newSocket = io('http://localhost:8000')
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+    const newSocket = io(socketUrl)
 
     newSocket.on('connect', () => {
       console.log('Socket connected')

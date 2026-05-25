@@ -157,6 +157,20 @@ const buildCacheKey = (assignment: any) => {
     return `vedaai:assignment-generation:${createHash('sha256').update(cacheMaterial).digest('hex')}`;
 };
 
+const buildRedisConnection = () => {
+    if (process.env.REDIS_URL) {
+        return { url: process.env.REDIS_URL };
+    }
+
+    return {
+        host: process.env.REDIS_HOST || '127.0.0.1',
+        port: Number(process.env.REDIS_PORT || 6379),
+        password: process.env.REDIS_PASSWORD || undefined,
+        tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
+    };
+};
+
+const redisConnection = buildRedisConnection();
 const redisHost = process.env.REDIS_HOST || '127.0.0.1';
 const redisPort = Number(process.env.REDIS_PORT || 6379);
 const mongodbUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/vedaai';
@@ -165,7 +179,7 @@ mongoose.connect(mongodbUri)
     .then(() => workerLog('MongoDB connected', { mongodbUri }))
     .catch((err) => workerLog('MongoDB connection error', { error: err instanceof Error ? err.message : String(err) }));
 
-const redisPub = new Redis({ host: redisHost, port: redisPort });
+const redisPub = new Redis(redisConnection as any);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 workerLog('Worker bootstrap complete', {
