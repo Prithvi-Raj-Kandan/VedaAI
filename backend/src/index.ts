@@ -9,7 +9,6 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { Redis } from 'ioredis';
 import multer from 'multer';
-import { PDFParse } from 'pdf-parse';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 
 dotenv.config();
@@ -35,6 +34,25 @@ const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000,http:
   .map((origin) => origin.trim())
   .filter(Boolean);
 const corsOrigin = allowedOrigins.includes('*') ? true : allowedOrigins;
+
+const parsePdfBuffer = async (buffer: Buffer) => {
+  const pdfParseModule = await import('pdf-parse');
+  const Parser = (pdfParseModule as any).PDFParse || (pdfParseModule as any).default;
+
+  if (!Parser) {
+    throw new Error('pdf-parse export not found');
+  }
+
+  if (Parser.name === 'PDFParse') {
+    const parser = new Parser({ data: buffer });
+    const parsed = await parser.getText();
+    await parser.destroy?.();
+    return parsed.text?.trim() || '';
+  }
+
+  const parsed = await Parser(buffer);
+  return parsed.text?.trim() || '';
+};
 
 const httpServer = createServer(app);
 const upload = multer({
@@ -325,10 +343,7 @@ app.post("/api/assignment", upload.single('materialFile'), async (req, res) => {
           });
 
           if (req.file.mimetype === 'application/pdf') {
-            const parser = new PDFParse({ data: req.file.buffer });
-            const parsed = await parser.getText();
-            extractedText = parsed.text?.trim() || '';
-            await parser.destroy();
+            extractedText = await parsePdfBuffer(req.file.buffer);
           } else if (req.file.mimetype === 'text/plain') {
             extractedText = req.file.buffer.toString('utf-8').trim();
           } else {
