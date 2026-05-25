@@ -32,7 +32,8 @@ const passwordKeyLength = 64;
 const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001')
   .split(',')
   .map((origin) => origin.trim())
-  .filter(Boolean);
+  .filter(Boolean)
+  .map((origin) => origin.replace(/\/$/, ''));
 const corsOrigin = allowedOrigins.includes('*') ? true : allowedOrigins;
 
 const parsePdfBuffer = async (buffer: Buffer) => {
@@ -61,7 +62,18 @@ const upload = multer({
 });
 const io = new Server(httpServer, {
   cors: {
-    origin: corsOrigin,
+    origin: (requestOrigin, callback) => {
+      if (!requestOrigin) {
+        return callback(null, true);
+      }
+
+      const normalizedOrigin = requestOrigin.replace(/\/$/, '');
+      if (corsOrigin === true || allowedOrigins.includes(normalizedOrigin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`CORS blocked for origin: ${requestOrigin}`));
+    },
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -109,7 +121,18 @@ mongoose.connect(mongodbUri)
     });
 
 app.use(cors({
-  origin: corsOrigin,
+  origin: (requestOrigin, callback) => {
+    if (!requestOrigin) {
+      return callback(null, true);
+    }
+
+    const normalizedOrigin = requestOrigin.replace(/\/$/, '');
+    if (corsOrigin === true || allowedOrigins.includes(normalizedOrigin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS blocked for origin: ${requestOrigin}`));
+  },
   credentials: true
 }));
 
