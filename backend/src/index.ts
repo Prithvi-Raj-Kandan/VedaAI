@@ -23,8 +23,6 @@ const apiLog = (event: string, data?: Record<string, unknown>) => {
 };
 
 const app = express();
-const redisHost = process.env.REDIS_HOST || '127.0.0.1';
-const redisPort = Number(process.env.REDIS_PORT || 6379);
 const mongodbUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/vedaai';
 const defaultUserEmail = process.env.VEDAAI_DEFAULT_USER_EMAIL || 'teacher@vedaai.local';
 const defaultUserDisplayName = process.env.VEDAAI_DEFAULT_USER_NAME || 'Demo Teacher';
@@ -35,6 +33,10 @@ const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000,http:
   .filter(Boolean)
   .map((origin) => origin.replace(/\/$/, ''));
 const corsOrigin = allowedOrigins.includes('*') ? true : allowedOrigins;
+
+const resolveRedisUrl = () => {
+  return process.env.REDISCLOUD_URL || process.env.REDIS_URL || process.env.REDIS_TLS_URL || process.env.UPSTASH_REDIS_URL || '';
+};
 
 const parsePdfBuffer = async (buffer: Buffer) => {
   const pdfParseModule = await import('pdf-parse');
@@ -53,6 +55,35 @@ const parsePdfBuffer = async (buffer: Buffer) => {
 
   const parsed = await Parser(buffer);
   return parsed.text?.trim() || '';
+};
+
+const buildRedisOptions = () => {
+  const redisUrlValue = resolveRedisUrl();
+
+  if (redisUrlValue) {
+    const redisUrl = new URL(redisUrlValue);
+    return {
+      username: redisUrl.username || 'default',
+      host: redisUrl.hostname,
+      port: Number(redisUrl.port || 6379),
+      password: redisUrl.password || undefined,
+      tls: redisUrl.protocol === 'rediss:' ? {} : undefined,
+      maxRetriesPerRequest: null,
+    };
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Redis config is missing. Set REDISCLOUD_URL, REDIS_URL, REDIS_TLS_URL, or UPSTASH_REDIS_URL in production.');
+  }
+
+  return {
+    username: process.env.REDIS_USERNAME || 'default',
+    host: process.env.REDIS_HOST || '127.0.0.1',
+    port: Number(process.env.REDIS_PORT || 6379),
+    password: process.env.REDIS_PASSWORD || undefined,
+    tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
+    maxRetriesPerRequest: null,
+  };
 };
 
 const httpServer = createServer(app);
@@ -79,38 +110,11 @@ const io = new Server(httpServer, {
   }
 });
 
-const buildRedisOptions = () => {
-  if (process.env.REDIS_URL) {
-    const redisUrl = new URL(process.env.REDIS_URL);
-    return {
-      username: redisUrl.username || 'default',
-      host: redisUrl.hostname,
-      port: Number(redisUrl.port || 6379),
-      password: redisUrl.password || undefined,
-      tls: redisUrl.protocol === 'rediss:' ? {} : undefined,
-    };
-  }
-
-  return {
-    username: process.env.REDIS_USERNAME || 'default',
-    host: process.env.REDIS_HOST || '127.0.0.1',
-    port: Number(process.env.REDIS_PORT || 6379),
-    password: process.env.REDIS_PASSWORD || undefined,
-    tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
-  };
-};
-
 const redisOptions = buildRedisOptions();
-
-const redisQueueConnection = process.env.REDIS_URL
-  ? redisOptions
-  : redisOptions;
 
 // Since package.json has "type": "module" and we are compiling with tsc,
 // we might need to be careful with extensions. But ts-node can handle it.
-const AIGenerationQueue = redisQueueConnection
-  ? new Queue('AIGenerationQueue', { connection: redisQueueConnection })
-  : new Queue('AIGenerationQueue', { connection: redisOptions });
+const AIGenerationQueue = new Queue('AIGenerationQueue', { connection: redisOptions });
 
 mongoose.connect(mongodbUri)
     .then(() => {
@@ -463,7 +467,7 @@ app.get("/api/assignments", async (req, res) => {
 
 const PORT = process.env.PORT || 8000;
 httpServer.listen(PORT, () => {
-  apiLog('Server listening', { port: PORT, redisHost, redisPort });
+  apiLog('Server listening', { port: PORT, redisHost: redisOptions.host, redisPort: redisOptions.port, hasRedisUrl: Boolean(resolveRedisUrl()) });
 });
 
 app.post('/api/assignment/:id/regenerate', async (req, res) => {

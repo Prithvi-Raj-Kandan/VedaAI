@@ -107,7 +107,7 @@ For production deployment, use:
 ### Step-by-Step Deployment
 1. Create a MongoDB Atlas cluster, database user, and allowlist access for your Heroku backend.
 1. Create a MongoDB Atlas cluster, database user, and allowlist access for your Heroku backend.
-2. Create a Redis instance and prefer a single `REDIS_URL` value.
+2. Create a Redis instance and prefer a single `REDISCLOUD_URL` or `REDIS_URL` value.
 3. Set backend environment variables from `backend/.env.example` on Heroku.
 4. Start the backend API with `npm run start` and the worker with `npm run worker:start`.
 5. Deploy the `frontend` folder to Vercel.
