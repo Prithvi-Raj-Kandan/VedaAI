@@ -161,12 +161,29 @@ const redisHost = process.env.REDIS_HOST || '127.0.0.1';
 const redisPort = Number(process.env.REDIS_PORT || 6379);
 const mongodbUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/vedaai';
 
-const resolveRedisUrl = () => {
-    return process.env.REDISCLOUD_URL || process.env.REDIS_URL || process.env.REDIS_TLS_URL || process.env.UPSTASH_REDIS_URL || '';
+const hasExplicitRedisConfig = () => {
+    return Boolean(
+        process.env.REDIS_HOST ||
+        process.env.REDIS_PORT ||
+        process.env.REDIS_USERNAME ||
+        process.env.REDIS_PASSWORD ||
+        process.env.REDIS_TLS
+    );
 };
 
 const buildRedisOptions = () => {
-    const redisUrlValue = resolveRedisUrl();
+    if (hasExplicitRedisConfig()) {
+        return {
+            username: process.env.REDIS_USERNAME || 'default',
+            host: process.env.REDIS_HOST || '127.0.0.1',
+            port: Number(process.env.REDIS_PORT || 6379),
+            password: process.env.REDIS_PASSWORD || undefined,
+            tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
+            maxRetriesPerRequest: null,
+        };
+    }
+
+    const redisUrlValue = process.env.REDISCLOUD_URL || process.env.REDIS_URL || process.env.REDIS_TLS_URL || process.env.UPSTASH_REDIS_URL || '';
 
     if (redisUrlValue) {
         const redisUrl = new URL(redisUrlValue);
@@ -181,7 +198,7 @@ const buildRedisOptions = () => {
     }
 
     if (process.env.NODE_ENV === 'production') {
-        throw new Error('Redis config is missing. Set REDISCLOUD_URL, REDIS_URL, REDIS_TLS_URL, or UPSTASH_REDIS_URL in production.');
+        throw new Error('Redis config is missing. Set REDIS_HOST/REDIS_PORT/REDIS_PASSWORD/REDIS_TLS or REDISCLOUD_URL/REDIS_URL in production.');
     }
 
     return {
