@@ -9,7 +9,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { Redis } from 'ioredis';
 import multer from 'multer';
-import pdfParse from 'pdf-parse';
+import { PDFParse } from 'pdf-parse';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 
 dotenv.config();
@@ -24,20 +24,6 @@ const apiLog = (event: string, data?: Record<string, unknown>) => {
 };
 
 const app = express();
-const buildRedisConnection = () => {
-  if (process.env.REDIS_URL) {
-    return { url: process.env.REDIS_URL };
-  }
-
-  return {
-    host: process.env.REDIS_HOST || '127.0.0.1',
-    port: Number(process.env.REDIS_PORT || 6379),
-    password: process.env.REDIS_PASSWORD || undefined,
-    tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
-  };
-};
-
-const redisConnection = buildRedisConnection();
 const redisHost = process.env.REDIS_HOST || '127.0.0.1';
 const redisPort = Number(process.env.REDIS_PORT || 6379);
 const mongodbUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/vedaai';
@@ -63,11 +49,38 @@ const io = new Server(httpServer, {
   }
 });
 
+const buildRedisOptions = () => {
+  if (process.env.REDIS_URL) {
+    const redisUrl = new URL(process.env.REDIS_URL);
+    return {
+      username: redisUrl.username || 'default',
+      host: redisUrl.hostname,
+      port: Number(redisUrl.port || 6379),
+      password: redisUrl.password || undefined,
+      tls: redisUrl.protocol === 'rediss:' ? {} : undefined,
+    };
+  }
+
+  return {
+    username: process.env.REDIS_USERNAME || 'default',
+    host: process.env.REDIS_HOST || '127.0.0.1',
+    port: Number(process.env.REDIS_PORT || 6379),
+    password: process.env.REDIS_PASSWORD || undefined,
+    tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
+  };
+};
+
+const redisOptions = buildRedisOptions();
+
+const redisQueueConnection = process.env.REDIS_URL
+  ? redisOptions
+  : redisOptions;
+
 // Since package.json has "type": "module" and we are compiling with tsc,
 // we might need to be careful with extensions. But ts-node can handle it.
-const AIGenerationQueue = new Queue('AIGenerationQueue', {
-  connection: redisConnection as any
-});
+const AIGenerationQueue = redisQueueConnection
+  ? new Queue('AIGenerationQueue', { connection: redisQueueConnection })
+  : new Queue('AIGenerationQueue', { connection: redisOptions });
 
 mongoose.connect(mongodbUri)
     .then(() => {
@@ -240,8 +253,8 @@ io.on("connection", (socket) => {
   });
 });
 
-const redisSub = new Redis(redisConnection as any);
-const redisPub = new Redis(redisConnection as any);
+const redisSub = new Redis(redisOptions as any);
+const redisPub = new Redis(redisOptions as any);
 redisSub.subscribe('assignment-updates');
 redisSub.on('message', (channel: string, message: string) => {
   if (channel === 'assignment-updates') {
@@ -312,8 +325,10 @@ app.post("/api/assignment", upload.single('materialFile'), async (req, res) => {
           });
 
           if (req.file.mimetype === 'application/pdf') {
-            const parsed = await pdfParse(req.file.buffer);
+            const parser = new PDFParse({ data: req.file.buffer });
+            const parsed = await parser.getText();
             extractedText = parsed.text?.trim() || '';
+            await parser.destroy();
           } else if (req.file.mimetype === 'text/plain') {
             extractedText = req.file.buffer.toString('utf-8').trim();
           } else {

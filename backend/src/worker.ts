@@ -157,12 +157,24 @@ const buildCacheKey = (assignment: any) => {
     return `vedaai:assignment-generation:${createHash('sha256').update(cacheMaterial).digest('hex')}`;
 };
 
-const buildRedisConnection = () => {
+const redisHost = process.env.REDIS_HOST || '127.0.0.1';
+const redisPort = Number(process.env.REDIS_PORT || 6379);
+const mongodbUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/vedaai';
+
+const buildRedisOptions = () => {
     if (process.env.REDIS_URL) {
-        return { url: process.env.REDIS_URL };
+        const redisUrl = new URL(process.env.REDIS_URL);
+        return {
+            username: redisUrl.username || 'default',
+            host: redisUrl.hostname,
+            port: Number(redisUrl.port || 6379),
+            password: redisUrl.password || undefined,
+            tls: redisUrl.protocol === 'rediss:' ? {} : undefined,
+        };
     }
 
     return {
+        username: process.env.REDIS_USERNAME || 'default',
         host: process.env.REDIS_HOST || '127.0.0.1',
         port: Number(process.env.REDIS_PORT || 6379),
         password: process.env.REDIS_PASSWORD || undefined,
@@ -170,16 +182,13 @@ const buildRedisConnection = () => {
     };
 };
 
-const redisConnection = buildRedisConnection();
-const redisHost = process.env.REDIS_HOST || '127.0.0.1';
-const redisPort = Number(process.env.REDIS_PORT || 6379);
-const mongodbUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/vedaai';
+const redisOptions = buildRedisOptions();
 
 mongoose.connect(mongodbUri)
     .then(() => workerLog('MongoDB connected', { mongodbUri }))
     .catch((err) => workerLog('MongoDB connection error', { error: err instanceof Error ? err.message : String(err) }));
 
-const redisPub = new Redis(redisConnection as any);
+const redisPub = new Redis(redisOptions as any);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 workerLog('Worker bootstrap complete', {
