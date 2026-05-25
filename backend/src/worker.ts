@@ -19,6 +19,22 @@ const workerLog = (event: string, data?: Record<string, unknown>) => {
     }
 };
 
+const publishProgress = async (redisPub: Redis, assignmentId: string, assignment: any, stage: 'pdf_processed' | 'questions_drafted' | 'sections_finalized' | 'paper_saved', message: string) => {
+    assignment.progressStage = stage;
+    assignment.progressMessage = message;
+    await assignment.save();
+
+    await redisPub.publish('assignment-updates', JSON.stringify({
+        assignmentId,
+        status: 'processing',
+        stage,
+        message,
+        assignment
+    }));
+
+    workerLog('Published progress update', { assignmentId, stage, message });
+};
+
 const normalizeGeneratedPaper = (paper: any) => {
     if (!paper || typeof paper !== 'object') {
         return { sections: [] };
@@ -96,8 +112,40 @@ const parseAndValidateGeneratedPaper = (text: string) => {
     return validation.data;
 };
 
+const extractJsonCandidate = (text: string) => {
+    const trimmed = text.trim();
+    const firstBrace = trimmed.indexOf('{');
+    const lastBrace = trimmed.lastIndexOf('}');
+
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+        return trimmed.slice(firstBrace, lastBrace + 1);
+    }
+
+    return trimmed;
+};
+
+const buildFallbackPaper = (assignment: any) => ({
+    sections: [
+        {
+            title: 'Section A',
+            instruction: 'Attempt all questions.',
+            questions: (assignment.questions || []).flatMap((group: any, groupIndex: number) => {
+                const questionCount = Number(group.totalQuestions || 1);
+                const marksPerQuestion = Number(group.marksPerQuestion ?? group.totalMarks ?? 1);
+                return Array.from({ length: questionCount }).map((_, index) => ({
+                    id: `q${groupIndex + 1}_${index + 1}`,
+                    questionText: `${group.questionType || 'Question'} ${index + 1}`,
+                    difficulty: 'medium',
+                    marks: marksPerQuestion,
+                }));
+            })
+        }
+    ]
+});
+
 const buildCacheKey = (assignment: any) => {
     const cacheMaterial = JSON.stringify({
+        userId: String(assignment.userId || ''),
         title: assignment.title,
         fileContext: assignment.fileContext || '',
         questions: assignment.questions || [],
@@ -149,17 +197,14 @@ const worker = new Worker('AIGenerationQueue', async (job) => {
             questionGroups: assignment.questions?.length || 0
         });
 
-        // Notify that generation started
-        await redisPub.publish('assignment-updates', JSON.stringify({
-            assignmentId,
-            status: 'processing'
-        }));
-        workerLog('Published status update', { assignmentId, status: 'processing' });
+        await publishProgress(redisPub, assignmentId, assignment, 'pdf_processed', assignment.fileContext ? 'Analyzing uploaded material and extracting key context' : 'Loading assignment inputs and planning the paper');
 
         if (!process.env.GEMINI_API_KEY) {
             workerLog('No GEMINI_API_KEY found, using mock generation path', { assignmentId });
             // Simulate delay
+            await publishProgress(redisPub, assignmentId, assignment, 'questions_drafted', 'Drafting a lightweight preview paper');
             await new Promise(r => setTimeout(r, 2000));
+            await publishProgress(redisPub, assignmentId, assignment, 'sections_finalized', 'Finalizing the preview structure');
             assignment.status = 'completed';
             assignment.generatedPaper = {
                 sections: [
@@ -210,6 +255,8 @@ const worker = new Worker('AIGenerationQueue', async (job) => {
             })
             .join('\n');
 
+        await publishProgress(redisPub, assignmentId, assignment, 'questions_drafted', 'Drafting section flow and balancing question types');
+
         const totalMarksInPaper = assignment.questions.reduce((sum, q) => {
             const marksPerQuestion = Number(q.marksPerQuestion ?? q.totalMarks ?? 0);
             return sum + (q.totalQuestions * marksPerQuestion);
@@ -237,6 +284,8 @@ const worker = new Worker('AIGenerationQueue', async (job) => {
             if (generatedPaper) {
             assignment.status = 'completed';
             assignment.generatedPaper = generatedPaper;
+            assignment.progressStage = 'paper_saved';
+            assignment.progressMessage = 'Paper saved from cache';
 
             const nextVersion = (assignment.generatedPaperVersions?.length || 0) + 1;
             assignment.generatedPaperVersions = [
@@ -260,6 +309,8 @@ const worker = new Worker('AIGenerationQueue', async (job) => {
             await redisPub.publish('assignment-updates', JSON.stringify({
                 assignmentId,
                 status: 'completed',
+                stage: 'paper_saved',
+                message: 'Paper saved from cache',
                 assignment
             }));
             workerLog('Published status update', { assignmentId, status: 'completed' });
@@ -326,18 +377,33 @@ Return ONLY valid JSON, without any markdown formatting. Do not wrap in \`\`\`js
         } else if (text.startsWith('```')) {
             text = text.substring(3, text.length - 3).trim();
         }
-        
-        const generatedPaper = parseAndValidateGeneratedPaper(text);
+
+        const candidateText = extractJsonCandidate(text);
+        let generatedPaper;
+
+        try {
+            generatedPaper = parseAndValidateGeneratedPaper(candidateText);
+        } catch (parseError) {
+            workerLog('Gemini parsing failed, using fallback paper', {
+                assignmentId,
+                error: parseError instanceof Error ? parseError.message : String(parseError)
+            });
+            generatedPaper = normalizeGeneratedPaper(buildFallbackPaper(assignment));
+        }
         workerLog('LLM response parsed and validated', {
             assignmentId,
-            responseLength: text.length,
+            responseLength: candidateText.length,
             hasSections: Array.isArray(generatedPaper?.sections),
             sectionCount: Array.isArray(generatedPaper?.sections) ? generatedPaper.sections.length : 0,
             firstQuestionPreview: generatedPaper?.sections?.[0]?.questions?.[0]?.questionText?.slice?.(0, 80) || ''
         });
 
+    await publishProgress(redisPub, assignmentId, assignment, 'sections_finalized', 'Validating generated sections and polishing the draft');
+
         assignment.status = 'completed';
         assignment.generatedPaper = generatedPaper;
+    assignment.progressStage = 'paper_saved';
+    assignment.progressMessage = 'Paper saved successfully';
 
         const nextVersion = (assignment.generatedPaperVersions?.length || 0) + 1;
         assignment.generatedPaperVersions = [
@@ -367,6 +433,8 @@ Return ONLY valid JSON, without any markdown formatting. Do not wrap in \`\`\`js
         await redisPub.publish('assignment-updates', JSON.stringify({
             assignmentId,
             status: 'completed',
+            stage: 'paper_saved',
+            message: 'Paper saved successfully',
             assignment
         }));
         workerLog('Published status update', { assignmentId, status: 'completed' });

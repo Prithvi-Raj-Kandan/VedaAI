@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import mongoose from 'mongoose';
+import User from './models/User.js';
 import Assignment from './models/Assignment.js';
 import { Queue } from 'bullmq';
 import { createServer } from 'http';
@@ -9,6 +10,7 @@ import { Server } from 'socket.io';
 import { Redis } from 'ioredis';
 import multer from 'multer';
 import { PDFParse } from 'pdf-parse';
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 
 dotenv.config();
 
@@ -25,6 +27,9 @@ const app = express();
 const redisHost = process.env.REDIS_HOST || '127.0.0.1';
 const redisPort = Number(process.env.REDIS_PORT || 6379);
 const mongodbUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/vedaai';
+const defaultUserEmail = process.env.VEDAAI_DEFAULT_USER_EMAIL || 'teacher@vedaai.local';
+const defaultUserDisplayName = process.env.VEDAAI_DEFAULT_USER_NAME || 'Demo Teacher';
+const passwordKeyLength = 64;
 
 const httpServer = createServer(app);
 const upload = multer({
@@ -58,6 +63,124 @@ app.use(cors({
 }));
 
 app.use(express.json());
+
+const resolveCurrentUser = async (req: express.Request) => {
+  const explicitUser = await resolveCurrentUserFromHeaders(req);
+  if (explicitUser) {
+    return explicitUser;
+  }
+
+  const email = defaultUserEmail;
+  const displayName = defaultUserDisplayName;
+
+  const existingUser = await User.findOne({ email });
+  if (existingUser) {
+    return existingUser;
+  }
+
+  return User.create({ email, displayName });
+};
+
+const resolveCurrentUserFromHeaders = async (req: express.Request) => {
+  const explicitUserId = req.header('x-user-id')?.trim();
+  const explicitEmail = req.header('x-user-email')?.trim().toLowerCase();
+  const explicitName = req.header('x-user-name')?.trim();
+
+  if (explicitUserId) {
+    const user = await User.findById(explicitUserId);
+    if (user) {
+      return user;
+    }
+  }
+
+  const email = explicitEmail || defaultUserEmail;
+  const displayName = explicitName || defaultUserDisplayName;
+
+  const existingUser = await User.findOne({ email });
+  if (existingUser) {
+    return existingUser;
+  }
+
+  return null;
+};
+
+const hashPassword = (password: string) => {
+  const salt = randomBytes(16).toString('hex');
+  const derivedKey = scryptSync(password, salt, passwordKeyLength) as Buffer;
+  return `${salt}:${derivedKey.toString('hex')}`;
+};
+
+const verifyPassword = (password: string, passwordHash?: string) => {
+  if (!passwordHash) {
+    return false;
+  }
+
+  const [salt, storedKey] = passwordHash.split(':');
+  if (!salt || !storedKey) {
+    return false;
+  }
+
+  const derivedKey = scryptSync(password, salt, passwordKeyLength) as Buffer;
+  const storedKeyBuffer = Buffer.from(storedKey, 'hex');
+  if (storedKeyBuffer.length !== derivedKey.length) {
+    return false;
+  }
+
+  return timingSafeEqual(storedKeyBuffer, derivedKey);
+};
+
+app.post('/api/auth/signup', async (req, res) => {
+  try {
+    const displayName = String(req.body.displayName || '').trim();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '').trim();
+
+    if (!displayName || !email || !password) {
+      return res.status(400).json({ message: 'Display name, email, and password are required' });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ message: 'User already exists' });
+    }
+
+    const user = await User.create({ displayName, email, passwordHash: hashPassword(password) });
+    return res.status(201).json({ user });
+  } catch (error) {
+    apiLog('Signup failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+app.post('/api/auth/signin', async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '').trim();
+
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user || !verifyPassword(password, user.passwordHash)) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    return res.status(200).json({ user });
+  } catch (error) {
+    apiLog('Signin failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+const progressPayload = (stage: 'pdf_processed' | 'questions_drafted' | 'sections_finalized' | 'paper_saved', message: string) => ({
+  progressStage: stage,
+  progressMessage: message,
+});
 
 app.use((req, res, next) => {
   const startedAt = Date.now();
@@ -129,6 +252,7 @@ app.get("/health", (req, res) => {
 app.post("/api/assignment", upload.single('materialFile'), async (req, res) => {
     try {
     const requestId = (req as any).requestId;
+    const currentUser = await resolveCurrentUser(req);
         const title = req.body.title;
         const documentUrl = req.body.documentUrl;
         const dueDate = req.body.dueDate;
@@ -191,6 +315,7 @@ app.post("/api/assignment", upload.single('materialFile'), async (req, res) => {
         }
 
         const assignment = await Assignment.create({
+          userId: currentUser._id,
             title,
             documentURl: documentUrl,
             fileContext: extractedText || undefined,
@@ -205,11 +330,13 @@ app.post("/api/assignment", upload.single('materialFile'), async (req, res) => {
             questions: normalizedQuestions,
             additionalInfo,
             status: 'pending',
-            generatedPaperVersions: []
+            generatedPaperVersions: [],
+            ...progressPayload(req.file ? 'pdf_processed' : 'questions_drafted', req.file ? 'PDF processed and assignment queued' : 'Assignment queued for generation')
         });
 
         apiLog('Assignment created', {
           requestId,
+          userId: String(currentUser._id),
           assignmentId: String(assignment._id),
           hasFileContext: Boolean(assignment.fileContext),
           fileContextLength: assignment.fileContext?.length || 0,
@@ -218,11 +345,13 @@ app.post("/api/assignment", upload.single('materialFile'), async (req, res) => {
         
         await AIGenerationQueue.add("generate-paper", {
             assignmentId: assignment._id,
+          userId: currentUser._id,
         });
 
         apiLog('Job queued', {
           requestId,
           assignmentId: String(assignment._id),
+          userId: String(currentUser._id),
           queueName: 'AIGenerationQueue',
           jobName: 'generate-paper'
         });
@@ -240,7 +369,8 @@ app.post("/api/assignment", upload.single('materialFile'), async (req, res) => {
 // Endpoints to get assignment data
 app.get("/api/assignment/:id", async (req, res) => {
   try {
-    const assignment = await Assignment.findById(req.params.id);
+    const currentUser = await resolveCurrentUser(req);
+    const assignment = await Assignment.findOne({ _id: req.params.id, userId: currentUser._id });
     if (!assignment) {
       return res.status(404).json({ message: "Assignment not found" });
     }
@@ -252,7 +382,8 @@ app.get("/api/assignment/:id", async (req, res) => {
 
 app.get("/api/assignments", async (req, res) => {
   try {
-    const assignments = await Assignment.find().sort({ createdAt: -1 });
+    const currentUser = await resolveCurrentUser(req);
+    const assignments = await Assignment.find({ userId: currentUser._id }).sort({ createdAt: -1 });
     res.status(200).json(assignments);
   } catch (error) {
     res.status(500).json({ message: "Internal server error" });
@@ -267,16 +398,20 @@ httpServer.listen(PORT, () => {
 app.post('/api/assignment/:id/regenerate', async (req, res) => {
   try {
     const requestId = (req as any).requestId;
-    const assignment = await Assignment.findById(req.params.id);
+    const currentUser = await resolveCurrentUser(req);
+    const assignment = await Assignment.findOne({ _id: req.params.id, userId: currentUser._id });
     if (!assignment) {
       return res.status(404).json({ message: 'Assignment not found' });
     }
 
     assignment.status = 'pending';
+    assignment.progressStage = 'questions_drafted';
+    assignment.progressMessage = 'Regeneration queued';
     await assignment.save();
 
     await AIGenerationQueue.add('generate-paper', {
       assignmentId: assignment._id,
+      userId: assignment.userId,
       source: 'regenerate'
     });
 
@@ -298,7 +433,8 @@ app.post('/api/assignment/:id/regenerate', async (req, res) => {
 
 app.get('/api/assignment/:id/versions', async (req, res) => {
   try {
-    const assignment = await Assignment.findById(req.params.id).select('generatedPaperVersions activeVersion');
+    const currentUser = await resolveCurrentUser(req);
+    const assignment = await Assignment.findOne({ _id: req.params.id, userId: currentUser._id }).select('generatedPaperVersions activeVersion');
     if (!assignment) {
       return res.status(404).json({ message: 'Assignment not found' });
     }
@@ -311,6 +447,44 @@ app.get('/api/assignment/:id/versions', async (req, res) => {
   } catch (error) {
     apiLog('Versions fetch failed', {
       assignmentId: req.params.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+app.delete('/api/assignment/:id', async (req, res) => {
+  try {
+    const currentUser = await resolveCurrentUser(req);
+    const deletedAssignment = await Assignment.findOneAndDelete({ _id: req.params.id, userId: currentUser._id });
+
+    if (!deletedAssignment) {
+      return res.status(404).json({ message: 'Assignment not found' });
+    }
+
+    res.status(200).json({ message: 'Assignment deleted successfully' });
+  } catch (error) {
+    apiLog('Delete assignment failed', {
+      assignmentId: req.params.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+app.get('/api/user/me', async (req, res) => {
+  try {
+    const currentUser = await resolveCurrentUserFromHeaders(req);
+    if (!currentUser) {
+      return res.status(404).json({ message: 'No active user session' });
+    }
+    const assignmentCount = await Assignment.countDocuments({ userId: currentUser._id });
+    res.status(200).json({
+      user: currentUser,
+      assignmentCount,
+    });
+  } catch (error) {
+    apiLog('Me fetch failed', {
       error: error instanceof Error ? error.message : String(error)
     });
     res.status(500).json({ message: 'Internal server error' });

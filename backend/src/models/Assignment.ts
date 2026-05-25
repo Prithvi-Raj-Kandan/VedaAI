@@ -8,6 +8,7 @@ export interface IGeneratedPaperVersion {
 }
 
 export interface IAssignment extends Document {
+  userId: mongoose.Types.ObjectId;
   title: string;
   documentURl?: string;
   fileContext?: string;
@@ -31,9 +32,12 @@ export interface IAssignment extends Document {
   generatedPaper?: any;
   generatedPaperVersions: IGeneratedPaperVersion[];
   activeVersion?: number;
+  progressStage?: 'pdf_processed' | 'questions_drafted' | 'sections_finalized' | 'paper_saved';
+  progressMessage?: string;
 }
 
 const assignmentSchema = new Schema<IAssignment>({
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   title: { type: String, required: true },
   documentURl: { type: String, required: false },
   fileContext: { type: String, required: false },
@@ -67,7 +71,12 @@ const assignmentSchema = new Schema<IAssignment>({
     }
   ],
   activeVersion: { type: Number, required: false }
+  ,
+  progressStage: { type: String, enum: ['pdf_processed', 'questions_drafted', 'sections_finalized', 'paper_saved'], required: false },
+  progressMessage: { type: String, required: false }
 }, { timestamps: true });
+
+assignmentSchema.index({ userId: 1, createdAt: -1 });
 
 const Assignment = mongoose.model<IAssignment>("Assignment", assignmentSchema);
 export default Assignment;
