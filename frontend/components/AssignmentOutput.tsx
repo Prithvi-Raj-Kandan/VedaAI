@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, Download, RefreshCw } from 'lucide-react'
+import { Download, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAssignmentStore } from '@/hooks/useAssignmentStore'
 import { apiFetch } from '@/lib/api'
@@ -17,24 +17,16 @@ export default function AssignmentOutput({ assignmentId }: AssignmentOutputProps
   const router = useRouter()
   const user = useUserStore((state) => state.user)
   const [id, setId] = useState<string | null>(assignmentId || null)
-  const [loadingTipIndex, setLoadingTipIndex] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
 
-  const { connectSocket, setActiveAssignment, setGeneratedData, assignmentStatus, generatedData, progressStage, progressMessage } = useAssignmentStore()
+  const { setActiveAssignment, setGeneratedData, assignmentStatus, generatedData } = useAssignmentStore()
 
   const [assignment, setAssignment] = useState<any>(null)
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
   const [isRegenerating, setIsRegenerating] = useState(false)
 
-  const loadingTips = [
-    'Reviewing the uploaded material and assignment settings...',
-    'Balancing question types, marks, and difficulty...',
-    'Checking the draft for structure and coverage...',
-    'Saving the final paper and preparing the preview...',
-  ]
   const paper = useMemo(() => generatedData || assignment?.generatedPaper, [assignment?.generatedPaper, generatedData])
   const paperIsLoading = assignmentStatus === 'pending' || assignmentStatus === 'processing' || (!paper && assignmentStatus !== 'failed')
-  
 
   const fetchAssignment = async (assignmentId: string) => {
     try {
@@ -72,7 +64,6 @@ export default function AssignmentOutput({ assignmentId }: AssignmentOutputProps
     setId(paramId)
     if (!paramId) return
     fetchAssignment(paramId)
-    connectSocket()
     setActiveAssignment(paramId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assignmentId])
@@ -101,19 +92,6 @@ export default function AssignmentOutput({ assignmentId }: AssignmentOutputProps
   }, [assignmentStatus])
 
   
-
-  useEffect(() => {
-    if (!paperIsLoading) {
-      setLoadingTipIndex(0)
-      return
-    }
-
-    const intervalId = window.setInterval(() => {
-      setLoadingTipIndex((current) => (current + 1) % loadingTips.length)
-    }, 2400)
-
-    return () => window.clearInterval(intervalId)
-  }, [paperIsLoading])
 
   const handleDownloadPDF = async () => {
     const currentPaper = generatedData || assignment?.generatedPaper
@@ -293,16 +271,6 @@ export default function AssignmentOutput({ assignmentId }: AssignmentOutputProps
 
 
 
-  const progressSteps = [
-    { key: 'pdf_processed', label: 'PDF processed' },
-    { key: 'questions_drafted', label: 'Questions drafted' },
-    { key: 'sections_finalized', label: 'Sections finalized' },
-    { key: 'paper_saved', label: 'Paper saved' },
-  ] as const
-
-  const resolvedStage = progressStage ?? assignment?.progressStage ?? (assignmentStatus === 'completed' ? 'paper_saved' : null)
-  const activeStepIndex = progressSteps.findIndex((step) => step.key === resolvedStage)
-
   if (!user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-center text-white">
@@ -324,24 +292,7 @@ export default function AssignmentOutput({ assignmentId }: AssignmentOutputProps
           <div className="h-16 w-16 animate-spin rounded-full border-4 border-orange-400 border-t-transparent" />
           <div className="space-y-2">
             <h2 className="text-3xl font-bold">Generating Question Paper</h2>
-            <p className="mx-auto max-w-xl text-slate-300">
-              Generating your response.
-            </p>
-          </div>
-          <div className="space-y-3 text-sm text-slate-300">
-            {progressSteps.map((step, index) => {
-              const isComplete = activeStepIndex >= index
-              const isActive = activeStepIndex === index
-
-              return (
-                <div key={step.key} className={`flex items-center gap-3 rounded-xl px-4 py-3 ${isActive ? 'border border-orange-200/20 bg-white/5' : 'border border-white/10 bg-white/5'}`}>
-                  <span className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${isComplete ? 'border-green-400 text-green-400' : 'border-slate-400 text-slate-400'}`}>
-                    {isComplete ? <Check className="h-3 w-3" /> : <span className="h-2 w-2 rounded-full bg-current" />}
-                  </span>
-                  <span className={isActive ? 'text-white' : 'text-slate-300'}>{step.label}</span>
-                </div>
-              )
-            })}
+            <p className="mx-auto max-w-xl text-slate-300">Generating response...</p>
           </div>
         </div>
       </div>
